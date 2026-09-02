@@ -1,0 +1,5 @@
+# Copy this file to android/key.properties and keep the real file private.
+storeFile=C:/path/to/anbookkeep-release.jks
+storePassword=replace-with-store-password
+keyAlias=anbookkeep
+keyPassword=replace-with-key-password

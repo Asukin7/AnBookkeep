@@ -1,0 +1,43 @@
+name: anbookkeep
+description: "安安记账，一款简洁、本地优先的移动端记账应用。"
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.13.2
+
+dependencies:
+  cupertino_icons: ^1.0.8
+  csv: ^8.0.0
+  decimal: ^3.2.6
+  dio: ^5.4.3+1
+  drift: ^2.34.3
+  drift_flutter: ^0.3.1
+  fl_chart: ^1.2.0
+  excel_plus: ^2.17.0
+  file_picker: ^12.1.3
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  flutter_riverpod: ^3.4.2
+  flutter_image_compress: ^2.3.0
+  flutter_secure_storage: ^10.0.0
+  flutter_slidable: ^4.0.3
+  gbk_codec: ^0.4.0
+  go_router: ^18.0.0
+  image_picker: ^1.1.2
+  paddle_ocr_native: ^0.1.1
+  path_provider: ^2.1.4
+  shared_preferences: ^2.5.5
+  uuid: ^4.6.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  build_runner: ^2.16.0
+  drift_dev: ^2.34.5
+
+flutter:
+  uses-material-design: true

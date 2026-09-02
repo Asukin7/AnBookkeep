@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Adaptive icons render a 108dp layer through a smaller launcher mask. Keep the
+  complete, precomposed artwork inside the 66dp safe zone so the currency mark
+  and the lower-right plus remain visible on circular and squircle launchers.
+-->
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:drawable="@mipmap/ic_launcher_foreground"
+    android:inset="22%" />
