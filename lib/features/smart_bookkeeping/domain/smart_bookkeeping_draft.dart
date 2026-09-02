@@ -2,7 +2,7 @@ import 'package:anbookkeep/core/datetime/local_minute.dart';
 import 'package:anbookkeep/core/money/money.dart';
 import 'package:anbookkeep/features/bookkeeping/domain/entry_type.dart';
 
-enum SmartBookkeepingSource { camera, gallery }
+enum SmartBookkeepingSource { camera, gallery, share }
 
 enum RecognitionStatus {
   queued,

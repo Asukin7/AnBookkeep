@@ -34,7 +34,10 @@ abstract final class AppRoutes {
   static const batchRecognition = '/smart-bookkeeping/batch';
 }
 
+final rootNavigatorKey = GlobalKey<NavigatorState>();
+
 final appRouter = GoRouter(
+  navigatorKey: rootNavigatorKey,
   initialLocation: AppRoutes.detail,
   errorBuilder: (context, state) => Scaffold(
     appBar: AppBar(title: const Text('页面不存在')),

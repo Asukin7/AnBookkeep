@@ -16,7 +16,20 @@ import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 
 abstract final class SmartBookkeepingLauncher {
+  static final ValueNotifier<bool> busyListenable = ValueNotifier(false);
+
+  static bool get isBusy => busyListenable.value;
+
   static Future<void> camera(BuildContext context, WidgetRef ref) async {
+    if (!_begin(context)) return;
+    try {
+      await _camera(context, ref);
+    } finally {
+      _end();
+    }
+  }
+
+  static Future<void> _camera(BuildContext context, WidgetRef ref) async {
     _log.info('camera_picker_opened');
     try {
       final image = await ImagePicker().pickImage(
@@ -55,6 +68,15 @@ abstract final class SmartBookkeepingLauncher {
   }
 
   static Future<void> gallery(BuildContext context, WidgetRef ref) async {
+    if (!_begin(context)) return;
+    try {
+      await _gallery(context, ref);
+    } finally {
+      _end();
+    }
+  }
+
+  static Future<void> _gallery(BuildContext context, WidgetRef ref) async {
     _log.info('gallery_picker_opened');
     try {
       final images = await ImagePicker().pickMultiImage(
@@ -69,29 +91,12 @@ abstract final class SmartBookkeepingLauncher {
         'gallery_images_selected',
         fields: {'imageCount': images.length},
       );
-      if (!await _confirmUpload(context, ref, imageCount: images.length)) {
-        _log.info(
-          'gallery_recognition_cancelled_before_start',
-          fields: {'imageCount': images.length},
-        );
-        return;
-      }
-      if (!context.mounted) return;
-      if (images.length == 1) {
-        await _recognizeSingle(
-          context,
-          ref,
-          path: images.single.path,
-          source: SmartBookkeepingSource.gallery,
-        );
-      } else {
-        await context.push<bool>(
-          AppRoutes.batchRecognition,
-          extra: BatchRecognitionArgs(
-            paths: [for (final image in images) image.path],
-          ),
-        );
-      }
+      await _recognizePaths(
+        context,
+        ref,
+        paths: [for (final image in images) image.path],
+        source: SmartBookkeepingSource.gallery,
+      );
     } on PlatformException catch (error) {
       _log.error(
         'gallery_picker_failed',
@@ -103,6 +108,81 @@ abstract final class SmartBookkeepingLauncher {
       _log.error('gallery_launch_failed', cause: error, stackTrace: stackTrace);
       if (context.mounted) {
         _showError(context, appErrorMessage(error, fallback: '图片记账无法启动，请稍后重试'));
+      }
+    }
+  }
+
+  static Future<void> shared(
+    BuildContext context,
+    WidgetRef ref, {
+    required List<String> paths,
+  }) async {
+    if (!_begin(context)) {
+      final service = ref.read(smartBookkeepingServiceProvider);
+      await Future.wait([
+        for (final path in paths) service.deleteTemporaryImage(path),
+      ]);
+      return;
+    }
+    _log.info('shared_images_received', fields: {'imageCount': paths.length});
+    try {
+      await _recognizePaths(
+        context,
+        ref,
+        paths: paths,
+        source: SmartBookkeepingSource.share,
+      );
+    } finally {
+      _end();
+    }
+  }
+
+  static bool _begin(BuildContext context) {
+    if (busyListenable.value) {
+      _showError(context, '正在处理图片记账，请稍候');
+      return false;
+    }
+    busyListenable.value = true;
+    return true;
+  }
+
+  static void _end() => busyListenable.value = false;
+
+  static Future<void> _recognizePaths(
+    BuildContext context,
+    WidgetRef ref, {
+    required List<String> paths,
+    required SmartBookkeepingSource source,
+  }) async {
+    if (paths.isEmpty) return;
+    try {
+      if (!await _confirmUpload(context, ref, imageCount: paths.length)) {
+        _log.info(
+          '${source.name}_recognition_cancelled_before_start',
+          fields: {'imageCount': paths.length},
+        );
+        return;
+      }
+      if (!context.mounted) return;
+      if (paths.length == 1) {
+        await _recognizeSingle(
+          context,
+          ref,
+          path: paths.single,
+          source: source,
+        );
+      } else {
+        await context.push<bool>(
+          AppRoutes.batchRecognition,
+          extra: BatchRecognitionArgs(paths: paths, source: source),
+        );
+      }
+    } finally {
+      if (source == SmartBookkeepingSource.share) {
+        final service = ref.read(smartBookkeepingServiceProvider);
+        await Future.wait([
+          for (final path in paths) service.deleteTemporaryImage(path),
+        ]);
       }
     }
   }

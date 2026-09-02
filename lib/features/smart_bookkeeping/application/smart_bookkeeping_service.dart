@@ -210,9 +210,11 @@ final class SmartBookkeepingService {
         'OCR_TEXT': local.rawText,
         'EXPENSE_CATEGORIES': _categoryPrompt(categories, EntryType.expense),
         'INCOME_CATEGORIES': _categoryPrompt(categories, EntryType.income),
-        'INPUT_SOURCE': source == SmartBookkeepingSource.camera
-            ? '拍照图片'
-            : '相册图片',
+        'INPUT_SOURCE': switch (source) {
+          SmartBookkeepingSource.camera => '拍照图片',
+          SmartBookkeepingSource.gallery => '相册图片',
+          SmartBookkeepingSource.share => '外部分享图片',
+        },
       },
     );
     _log.sensitiveDebug(

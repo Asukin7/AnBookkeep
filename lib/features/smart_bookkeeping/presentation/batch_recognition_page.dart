@@ -24,9 +24,13 @@ import 'package:go_router/go_router.dart';
 import 'package:uuid/uuid.dart';
 
 final class BatchRecognitionArgs {
-  const BatchRecognitionArgs({required this.paths});
+  const BatchRecognitionArgs({
+    required this.paths,
+    this.source = SmartBookkeepingSource.gallery,
+  });
 
   final List<String> paths;
+  final SmartBookkeepingSource source;
 }
 
 class BatchRecognitionPage extends ConsumerStatefulWidget {
@@ -45,7 +49,7 @@ class _BatchRecognitionPageState extends ConsumerState<BatchRecognitionPage> {
     for (var index = 0; index < widget.args.paths.length; index++)
       SmartBookkeepingDraft(
         id: 'queued-$index',
-        source: SmartBookkeepingSource.gallery,
+        source: widget.args.source,
         imagePath: widget.args.paths[index],
       ),
   ];
@@ -406,7 +410,7 @@ class _BatchRecognitionPageState extends ConsumerState<BatchRecognitionPage> {
     try {
       final result = await _service.recognize(
         sourcePath: sourcePath,
-        source: SmartBookkeepingSource.gallery,
+        source: widget.args.source,
         cancelToken: token,
         allowOnline: _onlineAvailable,
       );
@@ -445,7 +449,7 @@ class _BatchRecognitionPageState extends ConsumerState<BatchRecognitionPage> {
       setState(() {
         _items[index] = SmartBookkeepingDraft(
           id: _items[index].id,
-          source: SmartBookkeepingSource.gallery,
+          source: widget.args.source,
           imagePath: sourcePath,
           status: error.message == '识别已取消'
               ? RecognitionStatus.cancelled
