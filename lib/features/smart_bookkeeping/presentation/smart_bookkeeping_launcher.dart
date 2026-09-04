@@ -112,7 +112,7 @@ abstract final class SmartBookkeepingLauncher {
     }
   }
 
-  static Future<void> shared(
+  static Future<bool> shared(
     BuildContext context,
     WidgetRef ref, {
     required List<String> paths,
@@ -122,11 +122,11 @@ abstract final class SmartBookkeepingLauncher {
       await Future.wait([
         for (final path in paths) service.deleteTemporaryImage(path),
       ]);
-      return;
+      return false;
     }
     _log.info('shared_images_received', fields: {'imageCount': paths.length});
     try {
-      await _recognizePaths(
+      return await _recognizePaths(
         context,
         ref,
         paths: paths,
@@ -148,34 +148,35 @@ abstract final class SmartBookkeepingLauncher {
 
   static void _end() => busyListenable.value = false;
 
-  static Future<void> _recognizePaths(
+  static Future<bool> _recognizePaths(
     BuildContext context,
     WidgetRef ref, {
     required List<String> paths,
     required SmartBookkeepingSource source,
   }) async {
-    if (paths.isEmpty) return;
+    if (paths.isEmpty) return false;
     try {
       if (!await _confirmUpload(context, ref, imageCount: paths.length)) {
         _log.info(
           '${source.name}_recognition_cancelled_before_start',
           fields: {'imageCount': paths.length},
         );
-        return;
+        return false;
       }
-      if (!context.mounted) return;
+      if (!context.mounted) return false;
       if (paths.length == 1) {
-        await _recognizeSingle(
+        return await _recognizeSingle(
           context,
           ref,
           path: paths.single,
           source: source,
         );
       } else {
-        await context.push<bool>(
-          AppRoutes.batchRecognition,
-          extra: BatchRecognitionArgs(paths: paths, source: source),
-        );
+        return await context.push<bool>(
+              AppRoutes.batchRecognition,
+              extra: BatchRecognitionArgs(paths: paths, source: source),
+            ) ??
+            false;
       }
     } finally {
       if (source == SmartBookkeepingSource.share) {
@@ -227,7 +228,7 @@ abstract final class SmartBookkeepingLauncher {
     );
   }
 
-  static Future<void> _recognizeSingle(
+  static Future<bool> _recognizeSingle(
     BuildContext context,
     WidgetRef ref, {
     required String path,
@@ -244,7 +245,7 @@ abstract final class SmartBookkeepingLauncher {
         'single_recognition_dialog_closed_without_result',
         fields: {'source': source.name},
       );
-      return;
+      return false;
     }
     _log.info(
       'single_recognition_opened_for_review',
@@ -252,10 +253,11 @@ abstract final class SmartBookkeepingLauncher {
       fields: {'status': draft.status.name, 'usedOnlineAi': draft.usedOnlineAi},
     );
     try {
-      await context.push<bool>(
-        AppRoutes.bookkeeping,
-        extra: BookkeepingDraftPageArgs(draft: draft),
-      );
+      return await context.push<bool>(
+            AppRoutes.bookkeeping,
+            extra: BookkeepingDraftPageArgs(draft: draft),
+          ) ??
+          false;
     } finally {
       await ref
           .read(smartBookkeepingServiceProvider)

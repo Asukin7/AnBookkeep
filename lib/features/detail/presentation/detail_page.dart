@@ -14,6 +14,7 @@ import 'package:anbookkeep/core/widgets/app_bottom_sheet.dart';
 import 'package:anbookkeep/core/widgets/app_dialog.dart';
 import 'package:anbookkeep/core/widgets/app_year_month_wheel.dart';
 import 'package:anbookkeep/features/bookkeeping/data/bookkeeping_repository.dart';
+import 'package:anbookkeep/features/bookkeeping/application/ledger_change_notifier.dart';
 import 'package:anbookkeep/features/bookkeeping/application/ledger_year_paging_controller.dart';
 import 'package:anbookkeep/features/bookkeeping/domain/entry_type.dart';
 import 'package:anbookkeep/features/bookkeeping/presentation/bookkeeping_record_list.dart';
@@ -84,6 +85,11 @@ class _DetailPageState extends ConsumerState<DetailPage>
 
   @override
   Widget build(BuildContext context) {
+    ref.listen<int>(ledgerChangeRevisionProvider, (previous, next) {
+      if (previous != null && previous != next) {
+        unawaited(_refreshAfterMutation());
+      }
+    });
     final settings = ref.watch(appSettingsProvider);
     final month =
         _visibleMonth ??

@@ -3,6 +3,7 @@ import 'dart:collection';
 
 import 'package:anbookkeep/app/router/app_router.dart';
 import 'package:anbookkeep/core/logging/app_logger.dart';
+import 'package:anbookkeep/features/bookkeeping/application/ledger_change_notifier.dart';
 import 'package:anbookkeep/features/smart_bookkeeping/application/smart_bookkeeping_service.dart';
 import 'package:anbookkeep/features/smart_bookkeeping/data/shared_image_intent_bridge.dart';
 import 'package:anbookkeep/features/smart_bookkeeping/presentation/smart_bookkeeping_launcher.dart';
@@ -116,15 +117,18 @@ class _SharedImageIntentListenerState
         }
         if (message != null) _showMessage(message);
         try {
-          await SmartBookkeepingLauncher.shared(
+          final saved = await SmartBookkeepingLauncher.shared(
             context,
             ref,
             paths: session.paths,
           );
+          if (saved && mounted) {
+            ref.read(ledgerChangeRevisionProvider.notifier).notifyChanged();
+          }
           _log.info(
             'share_session_consumed',
             operationId: _operationId(session),
-            fields: {'imageCount': session.paths.length},
+            fields: {'imageCount': session.paths.length, 'saved': saved},
           );
         } on Object catch (error, stackTrace) {
           await _deletePaths(session.paths);
