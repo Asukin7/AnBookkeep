@@ -29,7 +29,7 @@ class _AiBookkeepingSettingsPageState
   AiProviderConfig? _draft;
   bool _obscureApiKey = true;
   bool _saving = false;
-  bool _testing = false;
+  _AiTestTarget? _testingTarget;
 
   @override
   void dispose() {
@@ -153,20 +153,30 @@ class _AiBookkeepingSettingsPageState
             validator: draft.enabled ? _required : null,
           ),
           const SizedBox(height: AppSpacing.controlGap),
-          TextFormField(
-            controller: _visionModelController,
-            decoration: const InputDecoration(labelText: '视觉模型'),
-            autocorrect: false,
-            validator: draft.enabled && draft.allowImageUpload
+          _ModelField(
+            controller: _textModelController,
+            label: '文本模型',
+            testTooltip: '测试文本模型',
+            buttonKey: const ValueKey('testTextModelButton'),
+            testing: _testingTarget == _AiTestTarget.textModel,
+            onTest: draft.enabled && _testingTarget == null
+                ? () => _testModel(_AiTestTarget.textModel)
+                : null,
+            validator: draft.enabled && !draft.allowImageUpload
                 ? _required
                 : null,
           ),
           const SizedBox(height: AppSpacing.controlGap),
-          TextFormField(
-            controller: _textModelController,
-            decoration: const InputDecoration(labelText: '文本模型'),
-            autocorrect: false,
-            validator: draft.enabled && !draft.allowImageUpload
+          _ModelField(
+            controller: _visionModelController,
+            label: '视觉模型',
+            testTooltip: '测试视觉模型',
+            buttonKey: const ValueKey('testVisionModelButton'),
+            testing: _testingTarget == _AiTestTarget.visionModel,
+            onTest: draft.enabled && _testingTarget == null
+                ? () => _testModel(_AiTestTarget.visionModel)
+                : null,
+            validator: draft.enabled && draft.allowImageUpload
                 ? _required
                 : null,
           ),
@@ -183,9 +193,13 @@ class _AiBookkeepingSettingsPageState
           ),
           const SizedBox(height: AppSpacing.controlGap),
           OutlinedButton.icon(
-            onPressed: draft.enabled && !_testing ? _testConnection : null,
+            onPressed: draft.enabled && _testingTarget == null
+                ? _testConnection
+                : null,
             icon: const Icon(Icons.network_check_rounded),
-            label: Text(_testing ? '测试中…' : '测试连接'),
+            label: Text(
+              _testingTarget == _AiTestTarget.connection ? '测试中…' : '测试连接',
+            ),
           ),
         ],
       ),
@@ -242,7 +256,7 @@ class _AiBookkeepingSettingsPageState
 
   Future<void> _testConnection() async {
     if (!(_formKey.currentState?.validate() ?? false)) return;
-    setState(() => _testing = true);
+    setState(() => _testingTarget = _AiTestTarget.connection);
     try {
       await ref.read(onlineAiClientProvider).testConnection(_formValue());
       if (mounted) {
@@ -258,7 +272,109 @@ class _AiBookkeepingSettingsPageState
         );
       }
     } finally {
-      if (mounted) setState(() => _testing = false);
+      if (mounted) setState(() => _testingTarget = null);
     }
+  }
+
+  Future<void> _testModel(_AiTestTarget target) async {
+    final config = _formValue();
+    final validationError = _modelTestValidationError(config, target);
+    if (validationError != null) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: Text(validationError)));
+      return;
+    }
+    setState(() => _testingTarget = target);
+    final modelLabel = target == _AiTestTarget.textModel ? '文本模型' : '视觉模型';
+    try {
+      final client = ref.read(onlineAiClientProvider);
+      if (target == _AiTestTarget.textModel) {
+        await client.testTextModel(config);
+      } else {
+        await client.testVisionModel(config);
+      }
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(SnackBar(content: Text('$modelLabel测试成功')));
+      }
+    } on Object catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(
+            SnackBar(
+              content: Text(
+                appErrorMessage(error, fallback: '$modelLabel测试失败，请检查配置'),
+              ),
+            ),
+          );
+      }
+    } finally {
+      if (mounted) setState(() => _testingTarget = null);
+    }
+  }
+
+  String? _modelTestValidationError(
+    AiProviderConfig config,
+    _AiTestTarget target,
+  ) {
+    final baseUrlError = _validateBaseUrl(config.baseUrl);
+    if (baseUrlError != null) return baseUrlError;
+    if (!config.hasApiKey) return '请输入API Key';
+    final model = target == _AiTestTarget.textModel
+        ? config.textModel
+        : config.visionModel;
+    if (model.trim().isEmpty) {
+      return target == _AiTestTarget.textModel ? '请输入文本模型' : '请输入视觉模型';
+    }
+    return null;
+  }
+}
+
+enum _AiTestTarget { connection, textModel, visionModel }
+
+class _ModelField extends StatelessWidget {
+  const _ModelField({
+    required this.controller,
+    required this.label,
+    required this.testTooltip,
+    required this.buttonKey,
+    required this.testing,
+    required this.onTest,
+    required this.validator,
+  });
+
+  final TextEditingController controller;
+  final String label;
+  final String testTooltip;
+  final Key buttonKey;
+  final bool testing;
+  final VoidCallback? onTest;
+  final FormFieldValidator<String>? validator;
+
+  @override
+  Widget build(BuildContext context) {
+    return TextFormField(
+      controller: controller,
+      decoration: InputDecoration(
+        labelText: label,
+        suffixIcon: IconButton(
+          key: buttonKey,
+          tooltip: testing ? '测试中…' : testTooltip,
+          onPressed: onTest,
+          style: IconButton.styleFrom(backgroundColor: Colors.transparent),
+          icon: testing
+              ? const SizedBox.square(
+                  dimension: 20,
+                  child: CircularProgressIndicator.adaptive(strokeWidth: 2),
+                )
+              : const Icon(Icons.network_check_rounded),
+        ),
+      ),
+      autocorrect: false,
+      validator: validator,
+    );
   }
 }

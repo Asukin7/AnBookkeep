@@ -31,5 +31,36 @@ void main() {
     expect(find.text('API地址'), findsOneWidget);
     expect(find.text('视觉模型'), findsOneWidget);
     expect(find.text('文本模型'), findsOneWidget);
+    expect(
+      tester.getTopLeft(find.text('文本模型')).dy,
+      lessThan(tester.getTopLeft(find.text('视觉模型')).dy),
+    );
+    expect(find.byKey(const ValueKey('testTextModelButton')), findsOneWidget);
+    expect(find.byKey(const ValueKey('testVisionModelButton')), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('model inputs remain visible on a narrow phone screen', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(360, 800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    SharedPreferences.setMockInitialValues({});
+    FlutterSecureStorage.setMockInitialValues({});
+    final preferences = await SharedPreferences.getInstance();
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [sharedPreferencesProvider.overrideWithValue(preferences)],
+        child: const MaterialApp(home: AiBookkeepingSettingsPage()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.widgetWithText(TextFormField, '文本模型'), findsOneWidget);
+    expect(find.widgetWithText(TextFormField, '视觉模型'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 }

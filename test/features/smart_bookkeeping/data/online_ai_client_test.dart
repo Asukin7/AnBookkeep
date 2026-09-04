@@ -38,6 +38,67 @@ void main() {
     expect(captured.data.toString(), isNot(contains('base64')));
   });
 
+  test(
+    'text model test calls the configured text model without image',
+    () async {
+      final dio = Dio();
+      late RequestOptions captured;
+      dio.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            captured = options;
+            handler.resolve(
+              Response<Object?>(
+                requestOptions: options,
+                statusCode: 200,
+                data: '{"choices":[{"message":{"content":"OK"}}]}',
+              ),
+            );
+          },
+        ),
+      );
+
+      await OnlineAiClient(dio: dio).testTextModel(
+        const AiProviderConfig(apiKey: 'secret', textModel: 'text-test-model'),
+      );
+
+      expect(captured.data['model'], 'text-test-model');
+      expect(captured.data.toString(), isNot(contains('image_url')));
+    },
+  );
+
+  test(
+    'vision model test calls the configured vision model with image',
+    () async {
+      final dio = Dio();
+      late RequestOptions captured;
+      dio.interceptors.add(
+        InterceptorsWrapper(
+          onRequest: (options, handler) {
+            captured = options;
+            handler.resolve(
+              Response<Object?>(
+                requestOptions: options,
+                statusCode: 200,
+                data: '{"choices":[{"message":{"content":"OK"}}]}',
+              ),
+            );
+          },
+        ),
+      );
+
+      await OnlineAiClient(dio: dio).testVisionModel(
+        const AiProviderConfig(
+          apiKey: 'secret',
+          visionModel: 'vision-test-model',
+        ),
+      );
+
+      expect(captured.data['model'], 'vision-test-model');
+      expect(captured.data.toString(), contains('data:image/png;base64'));
+    },
+  );
+
   test('rejects non-HTTPS provider addresses before sending', () async {
     await expectLater(
       OnlineAiClient().testConnection(
