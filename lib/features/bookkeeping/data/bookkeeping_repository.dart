@@ -1,6 +1,8 @@
 import 'package:anbookkeep/core/database/app_database.dart';
 import 'package:anbookkeep/core/database/database_provider.dart';
+import 'package:anbookkeep/core/datetime/app_date_policy.dart';
 import 'package:anbookkeep/core/datetime/local_minute.dart';
+import 'package:anbookkeep/core/errors/app_error_message.dart';
 import 'package:anbookkeep/core/money/money.dart';
 import 'package:anbookkeep/features/bookkeeping/domain/entry_type.dart';
 import 'package:anbookkeep/features/bookkeeping/domain/historical_note.dart';
@@ -79,6 +81,7 @@ final class BookkeepingRepository {
       ..orderBy([
         (row) => OrderingTerm.asc(row.sortOrder),
         (row) => OrderingTerm.asc(row.createdAt),
+        (row) => OrderingTerm.asc(row.id),
       ]);
     return query.watch();
   }
@@ -89,6 +92,7 @@ final class BookkeepingRepository {
       ..orderBy([
         (row) => OrderingTerm.asc(row.sortOrder),
         (row) => OrderingTerm.asc(row.createdAt),
+        (row) => OrderingTerm.asc(row.id),
       ]);
     return query.get();
   }
@@ -101,12 +105,12 @@ final class BookkeepingRepository {
   }) async {
     final normalized = name.trim();
     if (normalized.isEmpty || normalized.length > 32) {
-      throw ArgumentError('分类名称长度需为1-32个字符');
+      throw const AppValidationException('分类名称长度需为1-32个字符');
     }
     final current = await (_database.select(
       _database.categories,
     )..where((row) => row.id.equals(id))).getSingleOrNull();
-    if (current == null) throw StateError('分类不存在或已被删除');
+    if (current == null) throw const AppValidationException('分类不存在或已被删除');
     await _validateCategoryNameAvailable(
       type: EntryType.fromDatabase(current.type),
       name: normalized,
@@ -123,7 +127,9 @@ final class BookkeepingRepository {
             updatedAt: Value(DateTime.now().millisecondsSinceEpoch),
           ),
         );
-    if (affected != 1) throw StateError('分类不存在或已被删除');
+    if (affected != 1) {
+      throw const AppValidationException('分类不存在或已被删除');
+    }
   }
 
   Future<String> createCategory({
@@ -134,7 +140,7 @@ final class BookkeepingRepository {
   }) async {
     final normalized = name.trim();
     if (normalized.isEmpty || normalized.length > 32) {
-      throw ArgumentError('分类名称长度需为1-32个字符');
+      throw const AppValidationException('分类名称长度需为1-32个字符');
     }
     await _validateCategoryNameAvailable(type: type, name: normalized);
     final existing =
@@ -164,12 +170,14 @@ final class BookkeepingRepository {
 
   Future<void> deleteCategory(String id) async {
     if (await isCategoryUsed(id)) {
-      throw StateError('该分类已被账单使用，不能删除');
+      throw const AppValidationException('该分类已被账单使用，不能删除');
     }
     final affected = await (_database.delete(
       _database.categories,
     )..where((row) => row.id.equals(id))).go();
-    if (affected != 1) throw StateError('分类不存在或已被删除');
+    if (affected != 1) {
+      throw const AppValidationException('分类不存在或已被删除');
+    }
   }
 
   Future<void> reorderCategories({
@@ -210,6 +218,21 @@ final class BookkeepingRepository {
               ..limit(1))
             .getSingleOrNull();
     return row?.occurredAt.substring(0, 7);
+  }
+
+  Future<({int minYear, int maxYear})?> dataYearRange() async {
+    final row = await _database
+        .customSelect(
+          '''SELECT MIN(substr(occurred_at, 1, 4)) AS min_year,
+                    MAX(substr(occurred_at, 1, 4)) AS max_year
+             FROM transactions''',
+          readsFrom: {_database.bookkeepingEntries},
+        )
+        .getSingle();
+    final minimum = row.readNullable<String>('min_year');
+    final maximum = row.readNullable<String>('max_year');
+    if (minimum == null || maximum == null) return null;
+    return (minYear: int.parse(minimum), maxYear: int.parse(maximum));
   }
 
   Future<List<BookkeepingRecord>> getYear(int year) {
@@ -273,6 +296,7 @@ final class BookkeepingRepository {
     int? minAmountMinor,
     int? maxAmountMinor,
     int? limit,
+    int? offset,
   }) async {
     final query = _database.select(_database.bookkeepingEntries).join([
       innerJoin(
@@ -332,8 +356,9 @@ final class BookkeepingRepository {
     query.orderBy([
       OrderingTerm.desc(_database.bookkeepingEntries.occurredAt),
       OrderingTerm.desc(_database.bookkeepingEntries.createdAt),
+      OrderingTerm.desc(_database.bookkeepingEntries.id),
     ]);
-    if (limit != null) query.limit(limit);
+    if (limit != null) query.limit(limit, offset: offset);
     final rows = await query.get();
     return [
       for (final row in rows)
@@ -342,6 +367,125 @@ final class BookkeepingRepository {
           category: row.readTable(_database.categories),
         ),
     ];
+  }
+
+  Future<({String latestMonth, List<BookkeepingRecord> records})?>
+  searchLatestYear({
+    String? keyword,
+    EntryType? type,
+    String? startDate,
+    String? endDate,
+    Set<String> categoryIds = const {},
+    int? minAmountMinor,
+    int? maxAmountMinor,
+  }) async {
+    final clauses = <String>[];
+    final variables = <Variable<Object>>[];
+    final normalizedKeyword = keyword?.trim();
+    if (type != null) {
+      clauses.add('t.type = ?');
+      variables.add(Variable<int>(type.databaseValue));
+    }
+    if (normalizedKeyword != null && normalizedKeyword.isNotEmpty) {
+      final escapedKeyword = normalizedKeyword
+          .replaceAll(r'\', r'\\')
+          .replaceAll('%', r'\%')
+          .replaceAll('_', r'\_');
+      clauses.add("t.note LIKE ? ESCAPE '\\'");
+      variables.add(Variable<String>('%$escapedKeyword%'));
+    }
+    if (startDate != null) {
+      clauses.add('t.occurred_at >= ?');
+      variables.add(Variable<String>('$startDate 00:00'));
+    }
+    if (endDate != null) {
+      clauses.add('t.occurred_at <= ?');
+      variables.add(Variable<String>('$endDate 23:59'));
+    }
+    if (categoryIds.isNotEmpty) {
+      clauses.add(
+        'c.id IN (${List.filled(categoryIds.length, '?').join(',')})',
+      );
+      variables.addAll(categoryIds.map(Variable<String>.new));
+    }
+    if (minAmountMinor != null) {
+      clauses.add('t.amount_minor >= ?');
+      variables.add(Variable<int>(minAmountMinor));
+    }
+    if (maxAmountMinor != null) {
+      clauses.add('t.amount_minor <= ?');
+      variables.add(Variable<int>(maxAmountMinor));
+    }
+    final where = clauses.isEmpty ? '' : 'WHERE ${clauses.join(' AND ')}';
+    final rows = await _database
+        .customSelect(
+          '''
+WITH filtered AS (
+  SELECT t.id AS entry_id,
+         t.type AS entry_type,
+         t.category_id AS entry_category_id,
+         t.amount_minor,
+         t.note,
+         t.occurred_at,
+         t.created_at AS entry_created_at,
+         t.updated_at AS entry_updated_at,
+         c.id AS category_row_id,
+         c.type AS category_type,
+         c.name AS category_name,
+         c.icon_code,
+         c.color_value,
+         c.sort_order,
+         c.created_at AS category_created_at,
+         c.updated_at AS category_updated_at
+  FROM transactions AS t
+  INNER JOIN categories AS c ON c.id = t.category_id
+  $where
+), latest AS (
+  SELECT substr(MAX(occurred_at), 1, 7) AS latest_month,
+         substr(MAX(occurred_at), 1, 4) AS latest_year
+  FROM filtered
+)
+SELECT filtered.*, latest.latest_month
+FROM filtered CROSS JOIN latest
+WHERE substr(filtered.occurred_at, 1, 4) = latest.latest_year
+ORDER BY filtered.occurred_at DESC,
+         filtered.entry_created_at DESC,
+         filtered.entry_id DESC
+''',
+          variables: variables,
+          readsFrom: {_database.bookkeepingEntries, _database.categories},
+        )
+        .get();
+    if (rows.isEmpty) return null;
+    return (
+      latestMonth: rows.first.read<String>('latest_month'),
+      records: [for (final row in rows) _recordFromLatestYearRow(row)],
+    );
+  }
+
+  static BookkeepingRecord _recordFromLatestYearRow(QueryRow row) {
+    return BookkeepingRecord(
+      entry: TransactionRow(
+        id: row.read<String>('entry_id'),
+        type: row.read<int>('entry_type'),
+        categoryId: row.read<String>('entry_category_id'),
+        amountMinor: row.read<int>('amount_minor'),
+        note: row.readNullable<String>('note'),
+        occurredAt: row.read<String>('occurred_at'),
+        createdAt: row.read<int>('entry_created_at'),
+        updatedAt: row.read<int>('entry_updated_at'),
+      ),
+      category: CategoryRow(
+        id: row.read<String>('category_row_id'),
+        type: row.read<int>('category_type'),
+        name: row.read<String>('category_name'),
+        iconCode: row.read<String>('icon_code'),
+        colorValue: row.read<int>('color_value'),
+        sortOrder: row.read<int>('sort_order'),
+        createdAt: row.read<int>('category_created_at'),
+        updatedAt: row.read<int>('category_updated_at'),
+      ),
+    );
   }
 
   Future<List<HistoricalNote>> getHistoricalNotes({
@@ -385,6 +529,9 @@ final class BookkeepingRepository {
     final optionalColumns = scoreColumns.isEmpty
         ? ''
         : ',\n       ${scoreColumns.join(',\n       ')}';
+    final candidateLimit = smartSort
+        ? (limit * 25 < 200 ? 200 : limit * 25)
+        : limit;
     final rows = await _database
         .customSelect(
           '''
@@ -403,6 +550,8 @@ SELECT note_value,
        MAX(occurred_at) AS last_used_at$optionalColumns
 FROM note_entries
 GROUP BY note_value
+ORDER BY use_count DESC, last_used_at DESC, note_value ASC
+LIMIT ?
 ''',
           variables: [
             for (final value in values)
@@ -410,6 +559,7 @@ GROUP BY note_value
                 Variable<int>(value)
               else
                 Variable<String>(value as String),
+            Variable<int>(candidateLimit),
           ],
           readsFrom: {_database.bookkeepingEntries},
         )
@@ -481,9 +631,11 @@ GROUP BY note_value
       };
       for (final entry in entries) {
         final categoryType = categoryTypes[entry.categoryId];
-        if (categoryType == null) throw StateError('分类不存在');
+        if (categoryType == null) {
+          throw const AppValidationException('分类不存在');
+        }
         if (categoryType != entry.type.databaseValue) {
-          throw StateError('分类与收支类型不匹配');
+          throw const AppValidationException('分类与收支类型不匹配');
         }
       }
 
@@ -602,7 +754,7 @@ GROUP BY note_value
           ),
         );
     if (affected != 1) {
-      throw StateError('账单不存在或已被删除');
+      throw const AppValidationException('账单不存在或已被删除');
     }
   }
 
@@ -610,7 +762,9 @@ GROUP BY note_value
     final affected = await (_database.delete(
       _database.bookkeepingEntries,
     )..where((row) => row.id.equals(id))).go();
-    if (affected != 1) throw StateError('账单不存在或已被删除');
+    if (affected != 1) {
+      throw const AppValidationException('账单不存在或已被删除');
+    }
   }
 
   Future<void> _validateCategory(String categoryId, EntryType type) async {
@@ -618,10 +772,10 @@ GROUP BY note_value
       ..where((row) => row.id.equals(categoryId));
     final category = await query.getSingleOrNull();
     if (category == null) {
-      throw StateError('分类不存在');
+      throw const AppValidationException('分类不存在');
     }
     if (category.type != type.databaseValue) {
-      throw StateError('分类与收支类型不匹配');
+      throw const AppValidationException('分类与收支类型不匹配');
     }
   }
 
@@ -639,7 +793,7 @@ GROUP BY note_value
       query.where((row) => row.id.equals(excludingId).not());
     }
     if (await query.getSingleOrNull() != null) {
-      throw StateError('该类型下已存在同名分类');
+      throw const AppValidationException('该类型下已存在同名分类');
     }
   }
 
@@ -652,9 +806,7 @@ GROUP BY note_value
       '${type.databaseValue}\u0000${name.trim()}';
 
   static void _validateYear(int year) {
-    if (year < 1 || year > 9999) {
-      throw ArgumentError.value(year, 'year', '年份必须在1-9999之间');
-    }
+    AppDatePolicy.validateYear(year);
   }
 }
 

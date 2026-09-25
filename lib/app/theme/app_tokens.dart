@@ -15,6 +15,7 @@ abstract final class AppSizes {
 
   static const double iconButton = 40;
   static const double segmentedControl = 40;
+  static const double segmentedControlCompact = 32;
   static const double control = 48;
   static const double calculatorButton = 58;
   static const double calculatorRow = 64;

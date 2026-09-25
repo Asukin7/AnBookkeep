@@ -5,6 +5,7 @@ import 'package:anbookkeep/app/theme/app_spacing.dart';
 import 'package:anbookkeep/app/theme/app_theme.dart';
 import 'package:anbookkeep/app/theme/app_tokens.dart';
 import 'package:anbookkeep/core/datetime/local_minute.dart';
+import 'package:anbookkeep/core/datetime/app_date_policy.dart';
 import 'package:anbookkeep/core/errors/app_error_message.dart';
 import 'package:anbookkeep/core/logging/app_logger.dart';
 import 'package:anbookkeep/core/money/money_formatter.dart';
@@ -346,11 +347,22 @@ class _DetailPageState extends ConsumerState<DetailPage>
     final parts = currentMonth.split('-');
     final selectedYear = int.parse(parts[0]);
     final selectedMonth = int.parse(parts[1]);
+    final dataRange = await ref
+        .read(bookkeepingRepositoryProvider)
+        .dataYearRange();
+    if (!mounted) return;
+    final bounds = AppDatePolicy.pickerBounds(
+      dataMinimumYear: dataRange?.minYear,
+      dataMaximumYear: dataRange?.maxYear,
+      anchorYears: [selectedYear],
+    );
     final result = await showModalBottomSheet<String>(
       context: context,
       builder: (context) => _MonthWheelSheet(
         initialYear: selectedYear,
         initialMonth: selectedMonth,
+        minYear: bounds.minYear,
+        maxYear: bounds.maxYear,
       ),
     );
     if (result != null && mounted) {
@@ -545,21 +557,24 @@ class _MonthWheelSheet extends StatefulWidget {
   const _MonthWheelSheet({
     required this.initialYear,
     required this.initialMonth,
+    required this.minYear,
+    required this.maxYear,
   });
 
   final int initialYear;
   final int initialMonth;
+  final int minYear;
+  final int maxYear;
 
   @override
   State<_MonthWheelSheet> createState() => _MonthWheelSheetState();
 }
 
 class _MonthWheelSheetState extends State<_MonthWheelSheet> {
-  late int _year = widget.initialYear.clamp(2020, DateTime.now().year);
+  late int _year = widget.initialYear.clamp(widget.minYear, widget.maxYear);
   late int _month = widget.initialMonth.clamp(1, 12);
   @override
   Widget build(BuildContext context) {
-    final currentYear = DateTime.now().year;
     return AppBottomSheetLayout(
       title: '选择月份',
       actions: AppDialogActions(
@@ -572,7 +587,8 @@ class _MonthWheelSheetState extends State<_MonthWheelSheet> {
       child: AppYearMonthWheel(
         initialYear: _year,
         initialMonth: _month,
-        maxYear: currentYear,
+        minYear: widget.minYear,
+        maxYear: widget.maxYear,
         height: 132,
         onChanged: (value) {
           _year = value.year;

@@ -10,6 +10,7 @@ import 'package:anbookkeep/app/theme/app_theme.dart';
 import 'package:anbookkeep/app/theme/app_tokens.dart';
 import 'package:anbookkeep/features/analytics/presentation/analytics_page.dart';
 import 'package:anbookkeep/features/bookkeeping/data/bookkeeping_repository.dart';
+import 'package:anbookkeep/features/bookkeeping/application/ledger_change_notifier.dart';
 import 'package:anbookkeep/features/bookkeeping/domain/entry_type.dart';
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
@@ -132,6 +133,31 @@ void main() {
           ?.color,
       AppColors.income,
     );
+  });
+
+  testWidgets('ledger change signal refreshes analytics data', (tester) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [appDatabaseProvider.overrideWithValue(database)],
+        child: const MaterialApp(home: AnalyticsPage()),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('-128.50'), findsOneWidget);
+
+    await BookkeepingRepository(database).create(
+      type: EntryType.expense,
+      categoryId: 'expense-food',
+      amount: Money.fromMinorUnits(500),
+      occurredAt: LocalMinute.fromDateTime(DateTime.now()),
+    );
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(AnalyticsPage)),
+    );
+    container.read(ledgerChangeRevisionProvider.notifier).notifyChanged();
+    await tester.pumpAndSettle();
+
+    expect(find.text('-133.50'), findsOneWidget);
   });
 
   testWidgets('charts use clean axes, average line and category colors', (

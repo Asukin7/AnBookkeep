@@ -157,4 +157,67 @@ void main() {
     await tester.pump();
     await tester.pump();
   });
+
+  testWidgets('editing a category below the first three rows reveals it', (
+    tester,
+  ) async {
+    final database = AppDatabase(NativeDatabase.memory());
+    addTearDown(database.close);
+    final repository = BookkeepingRepository(database);
+    final id = await repository.create(
+      type: EntryType.expense,
+      categoryId: 'expense-transfer',
+      amount: Money.zero,
+      occurredAt: LocalMinute.parse('2026-09-25 12:00'),
+    );
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          bookkeepingRepositoryProvider.overrideWithValue(repository),
+        ],
+        child: MaterialApp(home: BookkeepingPage(transactionId: id)),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final grid = tester.widget<GridView>(find.byType(GridView));
+    expect(grid.controller!.offset, greaterThan(0));
+    expect(find.text('转账'), findsOneWidget);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(milliseconds: 1));
+  });
+
+  testWidgets('backspace has the normal button tap and hold behavior', (
+    tester,
+  ) async {
+    var presses = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: CalculatorKeyboard(
+            onPressed: (key) {
+              if (key == '←') presses++;
+            },
+            timeLabel: '2026-09-25',
+            onTimeTap: () {},
+            saveMode: true,
+          ),
+        ),
+      ),
+    );
+
+    final backspace = find.text('←');
+    await tester.tap(backspace);
+    expect(presses, 1);
+
+    final gesture = await tester.startGesture(tester.getCenter(backspace));
+    await tester.pump(const Duration(milliseconds: 600));
+    expect(presses, greaterThan(2));
+    final countWhileHeld = presses;
+    await gesture.up();
+    await tester.pump();
+    expect(presses, countWhileHeld);
+  });
 }

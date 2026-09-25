@@ -5,6 +5,7 @@ import 'package:anbookkeep/core/datetime/local_minute.dart';
 import 'package:anbookkeep/core/logging/app_logger.dart';
 import 'package:anbookkeep/core/money/money.dart';
 import 'package:anbookkeep/features/bookkeeping/domain/entry_type.dart';
+import 'package:anbookkeep/features/smart_bookkeeping/application/recognition_cancellation.dart';
 import 'package:anbookkeep/features/smart_bookkeeping/domain/recognition_result.dart';
 import 'package:decimal/decimal.dart';
 import 'package:paddle_ocr_native/paddle_ocr_native.dart';
@@ -15,14 +16,25 @@ final class LocalOcrService {
   final PaddleOcr _ocr;
   Future<void>? _initialization;
   Future<void> _recognitionTail = Future<void>.value();
+  static const maxRawTextChars = 16000;
 
-  Future<LocalOcrResult> recognize(File image, {String? operationId}) async {
+  Future<LocalOcrResult> recognize(
+    File image, {
+    String? operationId,
+    RecognitionCancellation? cancellation,
+  }) async {
+    cancellation?.throwIfCancelled();
     final previous = _recognitionTail;
     final release = Completer<void>();
     _recognitionTail = release.future;
-    await previous;
     try {
-      return await _recognizeExclusive(image, operationId: operationId);
+      await previous;
+      cancellation?.throwIfCancelled();
+      return await _recognizeExclusive(
+        image,
+        operationId: operationId,
+        cancellation: cancellation,
+      );
     } finally {
       release.complete();
     }
@@ -31,6 +43,7 @@ final class LocalOcrService {
   Future<LocalOcrResult> _recognizeExclusive(
     File image, {
     String? operationId,
+    RecognitionCancellation? cancellation,
   }) async {
     final stopwatch = Stopwatch()..start();
     _log.info(
@@ -40,17 +53,23 @@ final class LocalOcrService {
     );
     try {
       final initialization = Stopwatch()..start();
+      cancellation?.throwIfCancelled();
       await _ensureInitialized();
+      cancellation?.throwIfCancelled();
       _log.debug(
         'local_ocr_engine_ready',
         operationId: operationId,
         fields: {'elapsedMs': initialization.elapsedMilliseconds},
       );
       final recognized = await _ocr.recognize(image.absolute.path);
-      final rawText = recognized.results
+      cancellation?.throwIfCancelled();
+      final fullRawText = recognized.results
           .map((region) => region.text.trim())
           .where((text) => text.isNotEmpty)
           .join('\n');
+      final rawText = fullRawText.length <= maxRawTextChars
+          ? fullRawText
+          : fullRawText.substring(0, maxRawTextChars);
       _log.sensitiveDebug(
         'local_ocr_raw_text',
         operationId: operationId,
@@ -66,6 +85,7 @@ final class LocalOcrService {
           'recognitionMs': recognized.recognitionTimeMs,
           'regionCount': recognized.results.length,
           'textChars': result.rawText.length,
+          'textTruncated': fullRawText.length != rawText.length,
           'textLines': result.rawText.isEmpty
               ? 0
               : result.rawText.split('\n').length,

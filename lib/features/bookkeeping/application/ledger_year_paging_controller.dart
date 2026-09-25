@@ -127,6 +127,22 @@ final class LedgerYearPagingController {
     }
   }
 
+  void initializeWithRecords(
+    String anchorMonth,
+    List<BookkeepingRecord> records,
+  ) {
+    final year = _parseYearMonth(anchorMonth);
+    _generation++;
+    _years
+      ..clear()
+      ..[year] = LedgerYearPage(year: year, records: records);
+    isInitializing = false;
+    isLoadingOlder = false;
+    isLoadingNewer = false;
+    hasOlder = true;
+    hasNewer = findNewerYear != null;
+  }
+
   Future<bool> loadOlder() async {
     final fromYear = oldestYear;
     if (fromYear == null || !hasOlder || isLoadingOlder) return false;

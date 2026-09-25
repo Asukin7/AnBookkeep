@@ -3,6 +3,7 @@ import 'package:anbookkeep/core/database/database_provider.dart';
 import 'package:anbookkeep/core/datetime/local_minute.dart';
 import 'package:anbookkeep/core/money/money.dart';
 import 'package:anbookkeep/features/bookkeeping/data/bookkeeping_repository.dart';
+import 'package:anbookkeep/features/bookkeeping/application/ledger_change_notifier.dart';
 import 'package:anbookkeep/features/bookkeeping/domain/entry_type.dart';
 import 'package:anbookkeep/features/search/presentation/search_page.dart';
 import 'package:decimal/decimal.dart';
@@ -149,5 +150,34 @@ void main() {
 
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();
+  });
+
+  testWidgets('ledger change signal refreshes search results', (tester) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [appDatabaseProvider.overrideWithValue(database)],
+        child: const MaterialApp(home: SearchPage()),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('晚餐'), findsNothing);
+
+    await BookkeepingRepository(database).create(
+      type: EntryType.expense,
+      categoryId: 'expense-food',
+      amount: Money.fromMinorUnits(2200),
+      occurredAt: LocalMinute.parse('2026-08-30 18:00'),
+      note: '晚餐',
+    );
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(SearchPage)),
+    );
+    container.read(ledgerChangeRevisionProvider.notifier).notifyChanged();
+    await tester.pumpAndSettle();
+
+    expect(find.text('晚餐'), findsOneWidget);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(milliseconds: 1));
   });
 }

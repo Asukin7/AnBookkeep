@@ -35,7 +35,9 @@ void main() {
   test('search loads a year and skips years without matching data', () async {
     final criteria = SearchCriteria(keyword: '通勤');
 
-    expect(await findLatestSearchMonth(repository, criteria), '2026-08');
+    final initial = await loadInitialSearchYear(repository, criteria);
+    expect(initial?.latestMonth, '2026-08');
+    expect(initial?.records, hasLength(1));
     expect(await loadSearchYear(repository, criteria, 2026), hasLength(1));
     expect(await findOlderSearchYear(repository, criteria, 2026), 2024);
     expect(await findOlderSearchYear(repository, criteria, 2024), isNull);

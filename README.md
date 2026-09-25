@@ -112,7 +112,7 @@ lib/
 ├─ core/
 │  ├─ collections/         # 通用集合算法
 │  ├─ database/            # Drift 表、数据库与 Provider
-│  ├─ datetime/            # 本地分钟值对象
+│  ├─ datetime/            # 本地分钟值对象与全局日期范围策略
 │  ├─ errors/              # 面向用户的安全错误转换
 │  ├─ logging/             # 统一日志与敏感字段脱敏
 │  ├─ money/               # Money 值对象和格式化
@@ -254,7 +254,7 @@ AI 返回的类型、金额、分类 ID、时间和置信度都会再次校验�
 
 ### 环境
 
-- Flutter 3.47.x Stable
+- Flutter 3.47.2 Stable（版本声明见 `.fvmrc`）
 - Dart 3.13.x
 - Android Studio / Android SDK 36
 - Android SDK Command-line Tools
@@ -273,7 +273,7 @@ AI 返回的类型、金额、分类 ID、时间和置信度都会再次校验�
 修改数据库表或查询注解后执行：
 
 ```powershell
-.tooling\flutter\bin\flutter.bat pub run build_runner build --delete-conflicting-outputs
+.tooling\flutter\bin\dart.bat run build_runner build
 ```
 
 ### 质量检查
@@ -322,6 +322,7 @@ Release 构建缺少签名时会主动失败。正式上传前还应检查：
 
 - Money 舍入、范围和格式化。
 - LocalMinute 日期有效性。
+- 全局日期范围、实际数据年份自动扩展和 Drift schema 基线。
 - 计算器优先级、精确运算和异常。
 - 数据库约束、分类和账单仓库。
 - 年度加载、相邻年份和并发去重。
@@ -329,8 +330,8 @@ Release 构建缺少签名时会主动失败。正式上传前还应检查：
 - 分析汇总、趋势图和分类图关键样式。
 - 历史备注普通排序和智能评分。
 - 分类编辑、图标和颜色设置。
-- CSV/XLSX 表头识别、字段映射、导入和导出。
-- AI 配置、响应解析、HTTPS 限制、重定向和响应大小。
+- CSV/XLSX 表头识别、字段映射、导入导出以及异常压缩包边界。
+- AI 配置、响应解析、HTTPS 限制、重定向、请求边界和取消上下文。
 - 快捷 AI 记账按钮动画。
 
 发版前仍需在真实 Android 设备上完成原生集成测试。Widget 测试不能替代相机、文件选择器、Secure Storage、PaddleOCR、ONNX Runtime 和系统分享文件界面的真机验证。
@@ -343,6 +344,7 @@ Release 构建缺少签名时会主动失败。正式上传前还应检查：
 - 在线 AI 默认关闭，图片上传默认关闭。
 - 开启图片上传时会显示包含数据范围和费用风险的确认提示。
 - 图片预处理会移除 EXIF，并在完成、取消或过期后清理临时文件。
+- 图片、OCR 文本、AI 提示词、AI 响应和 XLSX 解压内容均有明确大小上限。
 - Release 日志不记录 OCR 原文、提示词、AI 原始响应或 API Key。
 - 自定义在线 AI 服务由用户选择，服务的数据保留与处理规则由对应服务提供方决定。
 

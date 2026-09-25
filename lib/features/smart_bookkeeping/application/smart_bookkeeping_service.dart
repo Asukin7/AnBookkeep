@@ -11,12 +11,12 @@ import 'package:anbookkeep/features/smart_bookkeeping/data/image_preprocessor.da
 import 'package:anbookkeep/features/smart_bookkeeping/data/local_ocr_service.dart';
 import 'package:anbookkeep/features/smart_bookkeeping/data/online_ai_client.dart';
 import 'package:anbookkeep/features/smart_bookkeeping/data/prompt_repository.dart';
+import 'package:anbookkeep/features/smart_bookkeeping/application/recognition_cancellation.dart';
 import 'package:anbookkeep/features/smart_bookkeeping/domain/ai_provider_config.dart';
 import 'package:anbookkeep/features/smart_bookkeeping/domain/prompt_template.dart';
 import 'package:anbookkeep/features/smart_bookkeeping/domain/recognition_result.dart';
 import 'package:anbookkeep/features/smart_bookkeeping/domain/smart_bookkeeping_draft.dart';
 import 'package:anbookkeep/features/smart_bookkeeping/domain/smart_draft_merger.dart';
-import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
@@ -43,10 +43,24 @@ final class SmartBookkeepingService {
   final AiResponseParser _aiResponseParser;
   final Uuid _uuid;
 
+  Future<RecognitionContext> loadRecognitionContext() async {
+    final promptContent = _promptRepository.load().active.content;
+    final values = await Future.wait<Object>([
+      _allCategories(),
+      _configRepository.load(),
+    ]);
+    return RecognitionContext(
+      config: values[1] as AiProviderConfig,
+      categories: values[0] as List<CategoryRow>,
+      promptContent: _truncate(promptContent, _maxPromptTemplateChars),
+    );
+  }
+
   Future<SmartBookkeepingDraft> recognize({
     required String sourcePath,
     required SmartBookkeepingSource source,
-    CancelToken? cancelToken,
+    RecognitionCancellation? cancellation,
+    RecognitionContext? context,
     bool allowOnline = true,
   }) async {
     final draftId = _uuid.v7();
@@ -59,23 +73,31 @@ final class SmartBookkeepingService {
       fields: {'source': source.name, 'allowOnline': allowOnline},
     );
     try {
+      cancellation?.throwIfCancelled();
       prepared = await _imagePreprocessor.prepare(
         sourcePath,
         operationId: operationId,
+        cancellation: cancellation,
       );
+      cancellation?.throwIfCancelled();
       LocalOcrResult local;
       Object? localError;
       try {
         local = await _localOcrService.recognize(
           prepared,
           operationId: operationId,
+          cancellation: cancellation,
         );
+      } on SmartRecognitionException {
+        rethrow;
       } on Object catch (error) {
         localError = error;
         local = const LocalOcrResult(rawText: '');
       }
-      final categories = await _allCategories();
-      final config = await _configRepository.load();
+      final recognitionContext = context ?? await loadRecognitionContext();
+      cancellation?.throwIfCancelled();
+      final categories = recognitionContext.categories;
+      final config = recognitionContext.config;
       _log.info(
         'recognition_context_loaded',
         operationId: operationId,
@@ -100,7 +122,8 @@ final class SmartBookkeepingService {
               local: local,
               categories: categories,
               source: source,
-              cancelToken: cancelToken,
+              promptContent: recognitionContext.promptContent,
+              cancellation: cancellation,
               operationId: operationId,
             );
           } else {
@@ -200,14 +223,16 @@ final class SmartBookkeepingService {
     required LocalOcrResult local,
     required List<CategoryRow> categories,
     required SmartBookkeepingSource source,
-    CancelToken? cancelToken,
+    required String promptContent,
+    RecognitionCancellation? cancellation,
     required String operationId,
   }) async {
-    final prompt = renderPromptTemplate(
-      _promptRepository.load().active.content,
+    cancellation?.throwIfCancelled();
+    final renderedPrompt = renderPromptTemplate(
+      promptContent,
       values: {
         'CURRENT_TIME': LocalMinute.now().value,
-        'OCR_TEXT': local.rawText,
+        'OCR_TEXT': _truncate(local.rawText, _maxOcrPromptChars),
         'EXPENSE_CATEGORIES': _categoryPrompt(categories, EntryType.expense),
         'INCOME_CATEGORIES': _categoryPrompt(categories, EntryType.income),
         'INPUT_SOURCE': switch (source) {
@@ -217,6 +242,7 @@ final class SmartBookkeepingService {
         },
       },
     );
+    final prompt = _truncate(renderedPrompt, _maxRenderedPromptChars);
     _log.sensitiveDebug(
       'online_ai_rendered_prompt',
       operationId: operationId,
@@ -227,15 +253,16 @@ final class SmartBookkeepingService {
             config: config,
             image: image,
             prompt: prompt,
-            cancelToken: cancelToken,
+            cancelToken: cancellation?.networkToken,
             operationId: operationId,
           )
         : await _onlineAiClient.recognizeText(
             config: config,
             prompt: prompt,
-            cancelToken: cancelToken,
+            cancelToken: cancellation?.networkToken,
             operationId: operationId,
           );
+    cancellation?.throwIfCancelled();
     _log.sensitiveDebug(
       'online_ai_raw_response',
       operationId: operationId,
@@ -259,11 +286,34 @@ final class SmartBookkeepingService {
   }
 
   static String _categoryPrompt(List<CategoryRow> categories, EntryType type) =>
-      categories
-          .where((category) => category.type == type.databaseValue)
-          .map((category) => '${category.id} | ${category.name}')
-          .join('、');
+      _truncate(
+        categories
+            .where((category) => category.type == type.databaseValue)
+            .map((category) => '${category.id} | ${category.name}')
+            .join('、'),
+        _maxCategoryPromptChars,
+      );
+
+  static String _truncate(String value, int maxChars) =>
+      value.length <= maxChars ? value : value.substring(0, maxChars);
 }
+
+final class RecognitionContext {
+  RecognitionContext({
+    required this.config,
+    required List<CategoryRow> categories,
+    required this.promptContent,
+  }) : categories = List.unmodifiable(categories);
+
+  final AiProviderConfig config;
+  final List<CategoryRow> categories;
+  final String promptContent;
+}
+
+const _maxPromptTemplateChars = 12000;
+const _maxOcrPromptChars = 12000;
+const _maxCategoryPromptChars = 8000;
+const _maxRenderedPromptChars = 32000;
 
 final onlineAiClientProvider = Provider<OnlineAiClient>((ref) {
   return OnlineAiClient();

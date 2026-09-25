@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:anbookkeep/core/datetime/local_minute.dart';
+import 'package:anbookkeep/core/errors/app_error_message.dart';
 import 'package:anbookkeep/core/money/money.dart';
 import 'package:anbookkeep/features/bookkeeping/domain/entry_type.dart';
 
@@ -23,6 +24,16 @@ enum ImportField {
   const ImportField(this.label, this.required);
   final String label;
   final bool required;
+}
+
+final class DataTransferException implements UserFacingException {
+  const DataTransferException(this.message);
+
+  @override
+  final String message;
+
+  @override
+  String toString() => message;
 }
 
 final class ExportPayload {

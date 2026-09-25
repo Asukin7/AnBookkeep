@@ -3,6 +3,7 @@ import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:anbookkeep/features/data_transfer/domain/data_transfer_models.dart';
+import 'package:archive/archive.dart';
 import 'package:csv/csv.dart';
 import 'package:excel_plus/excel_plus.dart';
 import 'package:gbk_codec/gbk_codec.dart';
@@ -10,24 +11,33 @@ import 'package:gbk_codec/gbk_codec.dart';
 abstract final class TabularFileCodec {
   static const maxFileBytes = 50 * 1024 * 1024;
   static const maxRows = 100000;
+  static const maxColumns = 128;
+  static const maxCellTextLength = 4096;
+  static const maxWorksheets = 32;
+  static const maxArchiveEntries = 2048;
+  static const maxArchiveEntryBytes = 64 * 1024 * 1024;
+  static const maxArchiveUncompressedBytes = 128 * 1024 * 1024;
 
   static Future<TabularDocument> decode({
     required String fileName,
     required Uint8List bytes,
   }) async {
     if (bytes.length > maxFileBytes) {
-      throw const FormatException('文件不能超过50MB');
+      throw const DataTransferException('文件不能超过50MB');
     }
     final extension = fileName.split('.').last.toLowerCase();
-    final result = await Isolate.run<(String, List<List<Object?>>)>(() async {
+    final result = await Isolate.run<(String, List<List<Object?>>)>(() {
       if (extension == 'xlsx') return _decodeXlsx(bytes);
       if (extension == 'csv') return _decodeCsv(bytes);
-      throw const FormatException('仅支持XLSX或CSV文件');
+      throw const DataTransferException('仅支持XLSX或CSV文件');
     });
     if (result.$2.length > maxRows + 10) {
-      throw const FormatException('文件数据不能超过100,000行');
+      throw const DataTransferException('文件数据不能超过100,000行');
     }
-    if (result.$2.isEmpty) throw const FormatException('文件中没有可读取的数据');
+    _validateRows(result.$2);
+    if (result.$2.isEmpty) {
+      throw const DataTransferException('文件中没有可读取的数据');
+    }
     return TabularDocument(
       fileName: fileName,
       sheetName: result.$1,
@@ -36,16 +46,29 @@ abstract final class TabularFileCodec {
     );
   }
 
-  static Future<(String, List<List<Object?>>)> _decodeXlsx(
-    Uint8List bytes,
-  ) async {
-    final excel = await Excel.decodeBytesAsync(bytes);
+  static (String, List<List<Object?>>) _decodeXlsx(Uint8List bytes) {
+    _validateXlsxArchive(bytes);
+    final Excel excel;
+    try {
+      excel = Excel.decodeBytes(bytes);
+    } on Object {
+      throw const DataTransferException('XLSX文件损坏或已加密');
+    }
+    if (excel.tables.length > maxWorksheets) {
+      throw const DataTransferException('XLSX工作表不能超过32个');
+    }
     for (final name in excel.tables.keys) {
       final table = excel.tables[name];
       if (table == null) continue;
       final rows = <List<Object?>>[];
       for (final row in table.rows) {
+        if (row.length > maxColumns) {
+          throw const DataTransferException('文件列数不能超过128列');
+        }
         rows.add([for (final cell in row) _cellValue(cell?.value)]);
+        if (rows.length > maxRows + 10) {
+          throw const DataTransferException('文件数据不能超过100,000行');
+        }
       }
       _trimEmptyTail(rows);
       if (rows.any((row) => row.any((value) => !_isBlank(value)))) {
@@ -53,6 +76,41 @@ abstract final class TabularFileCodec {
       }
     }
     return ('', <List<Object?>>[]);
+  }
+
+  static void _validateXlsxArchive(Uint8List bytes) {
+    final Archive archive;
+    try {
+      archive = ZipDecoder().decodeBytes(bytes);
+    } on Object {
+      throw const DataTransferException('XLSX文件损坏或已加密');
+    }
+    try {
+      if (archive.length > maxArchiveEntries) {
+        throw const DataTransferException('XLSX内部文件数量过多');
+      }
+      var totalBytes = 0;
+      var worksheetCount = 0;
+      for (final entry in archive) {
+        if (!entry.isFile) continue;
+        if (entry.size < 0 || entry.size > maxArchiveEntryBytes) {
+          throw const DataTransferException('XLSX内部文件过大');
+        }
+        totalBytes += entry.size;
+        if (totalBytes > maxArchiveUncompressedBytes) {
+          throw const DataTransferException('XLSX解压后内容不能超过128MB');
+        }
+        final normalizedName = entry.name.replaceAll('\\', '/');
+        if (RegExp(r'^xl/worksheets/[^/]+\.xml$').hasMatch(normalizedName)) {
+          worksheetCount++;
+        }
+      }
+      if (worksheetCount > maxWorksheets) {
+        throw const DataTransferException('XLSX工作表不能超过32个');
+      }
+    } finally {
+      archive.clearSync();
+    }
   }
 
   static Object? _cellValue(CellValue? value) => switch (value) {
@@ -75,6 +133,19 @@ abstract final class TabularFileCodec {
     ];
     _trimEmptyTail(rows);
     return ('CSV', rows);
+  }
+
+  static void _validateRows(List<List<Object?>> rows) {
+    for (final row in rows) {
+      if (row.length > maxColumns) {
+        throw const DataTransferException('文件列数不能超过128列');
+      }
+      for (final value in row) {
+        if (value is String && value.length > maxCellTextLength) {
+          throw const DataTransferException('单元格文字不能超过4,096个字符');
+        }
+      }
+    }
   }
 
   static String _decodeText(Uint8List bytes) {

@@ -3,6 +3,7 @@ import 'package:anbookkeep/core/errors/app_error_message.dart';
 import 'package:anbookkeep/core/logging/app_logger.dart';
 import 'package:anbookkeep/core/widgets/app_card.dart';
 import 'package:anbookkeep/core/widgets/app_dialog.dart';
+import 'package:anbookkeep/features/bookkeeping/application/ledger_change_notifier.dart';
 import 'package:anbookkeep/features/bookkeeping/domain/entry_type.dart';
 import 'package:anbookkeep/features/data_transfer/application/data_import_service.dart';
 import 'package:anbookkeep/features/data_transfer/data/tabular_file_codec.dart';
@@ -237,7 +238,7 @@ class _ImportBillsPageState extends ConsumerState<ImportBillsPage> {
     try {
       final fileLength = await file.length();
       if (fileLength > TabularFileCodec.maxFileBytes) {
-        throw const FormatException('文件不能超过50MB');
+        throw const DataTransferException('文件不能超过50MB');
       }
       final bytes = await file.readAsBytes();
       final document = await TabularFileCodec.decode(
@@ -310,6 +311,7 @@ class _ImportBillsPageState extends ConsumerState<ImportBillsPage> {
     try {
       final result = await ref.read(dataImportServiceProvider).commit(preview);
       if (!mounted) return;
+      ref.read(ledgerChangeRevisionProvider.notifier).notifyChanged();
       await showDialog<void>(
         context: context,
         builder: (dialogContext) => AlertDialog(

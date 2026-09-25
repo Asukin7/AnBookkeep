@@ -63,6 +63,24 @@ void main() {
     expect(controller.pageFor('2026-08')?.records, hasLength(2));
   });
 
+  test('accepts an already loaded initial year without another query', () {
+    var loadCount = 0;
+    final controller = LedgerYearPagingController(
+      loadYear: (year) async {
+        loadCount++;
+        return const [];
+      },
+      findOlderYear: (year) async => null,
+    );
+
+    controller.initializeWithRecords('2026-08', [
+      _record(id: 'initial', occurredAt: '2026-08-01 12:00'),
+    ]);
+
+    expect(loadCount, 0);
+    expect(controller.pageFor('2026-08')?.records, hasLength(1));
+  });
+
   test('clears initializing state when the annual load fails', () async {
     final controller = LedgerYearPagingController(
       loadYear: (year) => Future.error(StateError('load failed')),

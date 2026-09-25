@@ -19,34 +19,21 @@ void main() {
 
   tearDown(() => database.close());
 
-  test(
-    'dimension summary counts only records of that type including zero',
-    () async {
-      await repository.create(
-        type: EntryType.expense,
-        categoryId: 'expense-food',
-        amount: Money.zero,
-        occurredAt: LocalMinute.parse('2025-01-01 10:00'),
-      );
-      await repository.create(
-        type: EntryType.income,
-        categoryId: 'income-salary',
-        amount: Money.fromMinorUnits(1200),
-        occurredAt: LocalMinute.parse('2026-01-01 10:00'),
-      );
-      final records = await repository.search();
+  test('aggregate summary rounds positive and negative averages', () {
+    final positive = AnalyticsSummary.fromAggregate(
+      totalMinor: 5,
+      recordCount: 1,
+      denominator: 2,
+    );
+    final negative = AnalyticsSummary.fromAggregate(
+      totalMinor: -5,
+      recordCount: 1,
+      denominator: 2,
+    );
 
-      final expense = AnalyticsSummary.calculate(
-        records,
-        type: EntryType.expense,
-        denominator: 31,
-      );
-      expect(expense.recordCount, 1);
-      expect(expense.totalMinor, 0);
-      expect(bookkeepingYearCount(records), 2);
-      expect(bookkeepingYearCount(records, type: EntryType.expense), 1);
-    },
-  );
+    expect(positive.averageMinor, 3);
+    expect(negative.averageMinor, -3);
+  });
 
   test(
     'database aggregation supports totals above the single-entry limit',

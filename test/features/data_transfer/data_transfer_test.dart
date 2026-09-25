@@ -11,6 +11,7 @@ import 'package:anbookkeep/features/data_transfer/application/data_export_servic
 import 'package:anbookkeep/features/data_transfer/application/data_import_service.dart';
 import 'package:anbookkeep/features/data_transfer/data/tabular_file_codec.dart';
 import 'package:anbookkeep/features/data_transfer/domain/data_transfer_models.dart';
+import 'package:archive/archive.dart';
 import 'package:drift/native.dart';
 import 'package:decimal/decimal.dart';
 import 'package:flutter/material.dart';
@@ -170,4 +171,41 @@ void main() {
   test('recognizes a normalized English income-expense header', () {
     expect(TabularFileCodec.identifyHeader('Income-Expense'), ImportField.type);
   });
+
+  test('rejects cells whose text exceeds the import safety limit', () async {
+    final csv =
+        '类型,分类,时间,金额,备注\n支出,餐饮,2026-09-08,1,${'a' * (TabularFileCodec.maxCellTextLength + 1)}';
+
+    await expectLater(
+      TabularFileCodec.decode(
+        fileName: 'oversized-cell.csv',
+        bytes: Uint8List.fromList(utf8.encode(csv)),
+      ),
+      throwsA(isA<DataTransferException>()),
+    );
+  });
+
+  test(
+    'rejects XLSX archives with too many worksheets before parsing',
+    () async {
+      final archive = Archive();
+      for (var index = 0; index <= TabularFileCodec.maxWorksheets; index++) {
+        archive.addFile(
+          ArchiveFile.string('xl/worksheets/sheet$index.xml', '<worksheet/>'),
+        );
+      }
+      final bytes = Uint8List.fromList(ZipEncoder().encode(archive));
+
+      await expectLater(
+        TabularFileCodec.decode(fileName: 'too-many-sheets.xlsx', bytes: bytes),
+        throwsA(
+          isA<DataTransferException>().having(
+            (error) => error.message,
+            'message',
+            contains('工作表'),
+          ),
+        ),
+      );
+    },
+  );
 }

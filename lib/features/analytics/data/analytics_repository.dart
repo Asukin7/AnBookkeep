@@ -104,7 +104,7 @@ final class AnalyticsRepository {
                INNER JOIN categories AS c ON c.id = t.category_id
                ${categoryFilter!.sql}
                GROUP BY c.id, c.name, c.icon_code, c.color_value, c.type
-               ORDER BY amount_minor DESC, c.sort_order ASC''',
+               ORDER BY amount_minor DESC, c.sort_order ASC, c.id ASC''',
                 variables: categoryFilter.variables,
                 readsFrom: {_database.bookkeepingEntries, _database.categories},
               )

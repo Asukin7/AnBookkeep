@@ -9,9 +9,9 @@ final class _SafeException implements UserFacingException {
 }
 
 void main() {
-  test('keeps validation and explicitly user-facing messages', () {
+  test('keeps only explicitly user-facing messages', () {
     expect(
-      appErrorMessage(const FormatException('文件格式错误'), fallback: '失败'),
+      appErrorMessage(const AppValidationException('文件格式错误'), fallback: '失败'),
       '文件格式错误',
     );
     expect(
@@ -24,6 +24,13 @@ void main() {
     expect(
       appErrorMessage(
         Exception('C:/private/database.sqlite'),
+        fallback: '操作失败',
+      ),
+      '操作失败',
+    );
+    expect(
+      appErrorMessage(
+        const FormatException('third-party parser details'),
         fallback: '操作失败',
       ),
       '操作失败',

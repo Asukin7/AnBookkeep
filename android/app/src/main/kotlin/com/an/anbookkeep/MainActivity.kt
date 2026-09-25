@@ -20,11 +20,14 @@ class MainActivity : FlutterActivity() {
         private const val CHANNEL_NAME = "com.an.anbookkeep/shared_images"
         private const val CONSUME_METHOD = "consumePendingShares"
         private const val AVAILABLE_METHOD = "sharedImagesAvailable"
+        private const val INSPECT_IMAGE_METHOD = "inspectImagePath"
         private const val MAX_IMAGE_COUNT = 20
         private const val MAX_IMAGE_BYTES = 25L * 1024L * 1024L
         private const val MAX_TOTAL_BYTES = 200L * 1024L * 1024L
         private const val BUFFER_SIZE = 64 * 1024
         private const val TEMPORARY_DIRECTORY = "smart_bookkeeping"
+        private const val MAX_IMAGE_DIMENSION = 12_000
+        private const val MAX_IMAGE_PIXELS = 40_000_000L
     }
 
     private val worker = Executors.newSingleThreadExecutor()
@@ -39,6 +42,10 @@ class MainActivity : FlutterActivity() {
             setMethodCallHandler { call, result ->
                 when (call.method) {
                     CONSUME_METHOD -> result.success(consumePendingSessions())
+                    INSPECT_IMAGE_METHOD -> {
+                        val path = call.argument<String>("path")
+                        result.success(inspectImagePath(path))
+                    }
                     else -> result.notImplemented()
                 }
             }
@@ -221,12 +228,42 @@ class MainActivity : FlutterActivity() {
         val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeFile(file.absolutePath, options)
         if (options.outWidth <= 0 || options.outHeight <= 0) return false
+        if (options.outWidth > MAX_IMAGE_DIMENSION ||
+            options.outHeight > MAX_IMAGE_DIMENSION ||
+            options.outWidth.toLong() * options.outHeight.toLong() > MAX_IMAGE_PIXELS
+        ) {
+            return false
+        }
         return options.outMimeType in setOf(
             "image/jpeg",
             "image/png",
             "image/webp",
             "image/heic",
             "image/heif",
+        )
+    }
+
+    private fun inspectImagePath(path: String?): Map<String, Any> {
+        if (path.isNullOrBlank()) return mapOf("valid" to false)
+        val file = File(path)
+        if (!file.isFile || file.length() <= 0L || file.length() > MAX_IMAGE_BYTES) {
+            return mapOf("valid" to false)
+        }
+        val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(file.absolutePath, options)
+        val valid = options.outWidth > 0 &&
+            options.outHeight > 0 &&
+            options.outMimeType in setOf(
+                "image/jpeg",
+                "image/png",
+                "image/webp",
+                "image/heic",
+                "image/heif",
+            )
+        return mapOf(
+            "valid" to valid,
+            "width" to options.outWidth,
+            "height" to options.outHeight,
         )
     }
 

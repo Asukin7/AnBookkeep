@@ -41,6 +41,24 @@ void main() {
       expect(controller.state.result, Decimal.parse('1234'));
     });
 
+    test('shows entered decimals without adding trailing zeros', () {
+      final controller = CalculatorController();
+
+      expect(controller.state.displayAmount, '0');
+      controller
+        ..press('1')
+        ..press('2');
+      expect(controller.state.displayAmount, '12');
+      controller.press('.');
+      expect(controller.state.displayAmount, '12.');
+      controller.press('3');
+      expect(controller.state.displayAmount, '12.3');
+      controller.press('+');
+      expect(controller.state.displayAmount, '12.30');
+      controller.press('4');
+      expect(controller.state.displayAmount, '16.30');
+    });
+
     test('replaces consecutive operators', () {
       final controller = CalculatorController()
         ..press('1')

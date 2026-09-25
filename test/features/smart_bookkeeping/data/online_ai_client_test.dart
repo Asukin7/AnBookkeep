@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:anbookkeep/features/smart_bookkeeping/data/online_ai_client.dart';
 import 'package:anbookkeep/features/smart_bookkeeping/domain/ai_provider_config.dart';
 import 'package:anbookkeep/features/smart_bookkeeping/domain/recognition_result.dart';
@@ -187,5 +189,43 @@ void main() {
       ),
       throwsFormatException,
     );
+  });
+
+  test('rejects an oversized image before sending it to AI', () async {
+    final directory = await Directory.systemTemp.createTemp(
+      'anbookkeep_ai_test_',
+    );
+    final image = File('${directory.path}${Platform.pathSeparator}large.jpg');
+    await image.writeAsBytes(List<int>.filled(8 * 1024 * 1024 + 1, 0));
+    var requestSent = false;
+    final dio = Dio();
+    dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) {
+          requestSent = true;
+          handler.reject(
+            DioException(requestOptions: options, message: 'unexpected'),
+          );
+        },
+      ),
+    );
+
+    try {
+      await expectLater(
+        OnlineAiClient(dio: dio).recognizeImage(
+          config: const AiProviderConfig(
+            enabled: true,
+            apiKey: 'secret',
+            visionModel: 'vision-model',
+          ),
+          image: image,
+          prompt: '识别账单',
+        ),
+        throwsA(isA<SmartRecognitionException>()),
+      );
+      expect(requestSent, isFalse);
+    } finally {
+      await directory.delete(recursive: true);
+    }
   });
 }

@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'dart:isolate';
 
 import 'package:anbookkeep/core/datetime/local_minute.dart';
+import 'package:anbookkeep/core/datetime/app_date_policy.dart';
 import 'package:anbookkeep/core/logging/app_logger.dart';
 import 'package:anbookkeep/core/money/money.dart';
 import 'package:anbookkeep/features/bookkeeping/data/bookkeeping_repository.dart';
@@ -234,6 +235,7 @@ final class DataImportService {
     ).firstMatch(normalized);
     if (match == null) throw const FormatException('时间格式不正确');
     final year = int.parse(match.group(1)!);
+    AppDatePolicy.validateYear(year);
     final month = int.parse(match.group(2)!);
     final day = int.parse(match.group(3)!);
     final hour = int.tryParse(match.group(4) ?? '') ?? 0;

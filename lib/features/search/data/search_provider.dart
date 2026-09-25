@@ -1,12 +1,20 @@
 import 'package:anbookkeep/features/bookkeeping/data/bookkeeping_repository.dart';
 import 'package:anbookkeep/features/search/domain/search_criteria.dart';
 
-Future<String?> findLatestSearchMonth(
+Future<({String latestMonth, List<BookkeepingRecord> records})?>
+loadInitialSearchYear(
   BookkeepingRepository repository,
   SearchCriteria criteria,
-) async {
-  final records = await _search(repository, criteria, limit: 1);
-  return records.firstOrNull?.occurredAt.yearMonth;
+) {
+  return repository.searchLatestYear(
+    keyword: criteria.keyword,
+    type: criteria.type,
+    startDate: criteria.startDate,
+    endDate: criteria.endDate,
+    categoryIds: criteria.categoryIds.toSet(),
+    minAmountMinor: criteria.minAmountMinor,
+    maxAmountMinor: criteria.maxAmountMinor,
+  );
 }
 
 Future<int?> findOlderSearchYear(

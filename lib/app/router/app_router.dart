@@ -41,7 +41,12 @@ final appRouter = GoRouter(
   initialLocation: AppRoutes.detail,
   errorBuilder: (context, state) => Scaffold(
     appBar: AppBar(title: const Text('页面不存在')),
-    body: Center(child: Text(state.error?.toString() ?? '无法打开该页面')),
+    body: Center(
+      child: FilledButton(
+        onPressed: () => context.go(AppRoutes.detail),
+        child: const Text('返回明细'),
+      ),
+    ),
   ),
   routes: [
     GoRoute(

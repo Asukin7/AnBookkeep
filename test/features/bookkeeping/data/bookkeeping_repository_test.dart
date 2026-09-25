@@ -1,5 +1,6 @@
 import 'package:anbookkeep/core/database/app_database.dart';
 import 'package:anbookkeep/core/datetime/local_minute.dart';
+import 'package:anbookkeep/core/errors/app_error_message.dart';
 import 'package:anbookkeep/core/money/money.dart';
 import 'package:anbookkeep/core/widgets/category_icon.dart';
 import 'package:anbookkeep/features/bookkeeping/data/bookkeeping_repository.dart';
@@ -119,7 +120,7 @@ void main() {
         amount: Money.zero,
         occurredAt: LocalMinute.parse('2026-08-28 12:30'),
       ),
-      throwsStateError,
+      throwsA(isA<AppValidationException>()),
     );
   });
 
@@ -141,7 +142,10 @@ void main() {
         ),
       ];
 
-      await expectLater(repository.createBatch(entries), throwsStateError);
+      await expectLater(
+        repository.createBatch(entries),
+        throwsA(isA<AppValidationException>()),
+      );
       expect(await repository.search(), isEmpty);
     },
   );
@@ -196,6 +200,30 @@ void main() {
     expect(records.single.entry.note, '工作午餐');
   });
 
+  test(
+    'loads the latest matching year and anchor month in one query',
+    () async {
+      for (final value in const [
+        ('2024-01-01 10:00', '旧账单'),
+        ('2026-02-01 10:00', '目标账单'),
+        ('2026-08-01 10:00', '忽略'),
+      ]) {
+        await repository.create(
+          type: EntryType.expense,
+          categoryId: 'expense-food',
+          amount: Money.zero,
+          occurredAt: LocalMinute.parse(value.$1),
+          note: value.$2,
+        );
+      }
+
+      final result = await repository.searchLatestYear(keyword: '账单');
+
+      expect(result?.latestMonth, '2026-02');
+      expect(result?.records.map((record) => record.entry.note), ['目标账单']);
+    },
+  );
+
   test('search treats SQL wildcard characters as ordinary text', () async {
     await repository.create(
       type: EntryType.expense,
@@ -215,6 +243,25 @@ void main() {
     final records = await repository.search(keyword: '%');
     expect(records, hasLength(1));
     expect(records.single.entry.note, '折扣 10%');
+  });
+
+  test('search pagination follows the same stable ordering', () async {
+    await repository.createBatch([
+      for (var index = 0; index < 3; index++)
+        BookkeepingCreateInput(
+          type: EntryType.expense,
+          categoryId: 'expense-food',
+          amount: Money.zero,
+          occurredAt: LocalMinute.parse('2026-08-28 12:0$index'),
+          note: '账单$index',
+        ),
+    ]);
+
+    final firstPage = await repository.search(limit: 2);
+    final secondPage = await repository.search(limit: 2, offset: 2);
+
+    expect(firstPage.map((record) => record.entry.note), ['账单2', '账单1']);
+    expect(secondPage.map((record) => record.entry.note), ['账单0']);
   });
 
   test(
@@ -321,7 +368,7 @@ void main() {
         colorValue: 0xFFFF0000,
       ),
       throwsA(
-        isA<StateError>().having(
+        isA<AppValidationException>().having(
           (error) => error.message,
           'message',
           contains('同名分类'),
@@ -342,7 +389,7 @@ void main() {
         iconCode: 'other',
         colorValue: 0xFF00FF00,
       ),
-      throwsA(isA<StateError>()),
+      throwsA(isA<AppValidationException>()),
     );
   });
 
@@ -361,5 +408,10 @@ void main() {
     expect(await repository.previousDataYear(2026), 2025);
     expect(await repository.nextDataYear(2026), isNull);
     expect(await repository.previousDataYear(2023), isNull);
+    expect(await repository.dataYearRange(), (minYear: 2023, maxYear: 2026));
+  });
+
+  test('returns no data year range for an empty ledger', () async {
+    expect(await repository.dataYearRange(), isNull);
   });
 }

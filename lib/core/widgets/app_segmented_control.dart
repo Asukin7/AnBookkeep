@@ -4,9 +4,14 @@ import 'package:flutter/material.dart';
 
 /// Shared soft track used by tabs and segmented controls.
 class AppSegmentedSurface extends StatelessWidget {
-  const AppSegmentedSurface({required this.child, super.key});
+  const AppSegmentedSurface({
+    required this.child,
+    this.compact = false,
+    super.key,
+  });
 
   final Widget child;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
@@ -18,8 +23,10 @@ class AppSegmentedSurface extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.all(AppSpacing.xxs),
         child: ConstrainedBox(
-          constraints: const BoxConstraints(
-            minHeight: AppSizes.segmentedControl,
+          constraints: BoxConstraints(
+            minHeight: compact
+                ? AppSizes.segmentedControlCompact
+                : AppSizes.segmentedControl,
           ),
           child: child,
         ),
@@ -33,12 +40,14 @@ class AppSegmentedButton<T> extends StatelessWidget {
     required this.segments,
     required this.selected,
     required this.onSelectionChanged,
+    this.compact = false,
     super.key,
   });
 
   final List<ButtonSegment<T>> segments;
   final Set<T> selected;
   final ValueChanged<Set<T>> onSelectionChanged;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
@@ -51,8 +60,11 @@ class AppSegmentedButton<T> extends StatelessWidget {
           : AppAlpha.selectedShadowDark,
     );
     return AppSegmentedSurface(
+      compact: compact,
       child: SizedBox(
-        height: AppSizes.segmentedControl,
+        height: compact
+            ? AppSizes.segmentedControlCompact
+            : AppSizes.segmentedControl,
         child: Row(
           children: [
             for (final segment in segments)

@@ -20,6 +20,8 @@ final class DataExportService {
 
   static const _headers = ['类型', '分类', '时间', '金额', '备注'];
   static const _logger = AppLogger('DataExport');
+  static const maxExportRecords = 100000;
+  static const _queryPageSize = 2000;
   final BookkeepingRepository _repository;
 
   Future<ExportPayload> build({
@@ -28,22 +30,13 @@ final class DataExportService {
     required Color themeColor,
   }) async {
     final startedAt = DateTime.now();
-    final records = await _repository.search();
-    final rows = <List<Object?>>[
-      for (final record in records)
-        [
-          record.type.label,
-          record.category.name,
-          timePrecision == TimePrecision.date
-              ? record.occurredAt.date
-              : record.occurredAt.value,
-          record.amount.toString(),
-          record.entry.note ?? '',
-        ],
-    ];
-    final bytes = format == ExportFileFormat.csv
-        ? await Isolate.run(() => _buildCsv(rows))
-        : await _buildXlsx(rows, themeColor);
+    final rows = await _loadRows(timePrecision);
+    final themeColorValue = themeColor.toARGB32();
+    final bytes = await Isolate.run(
+      () => format == ExportFileFormat.csv
+          ? _buildCsv(rows)
+          : _buildXlsx(rows, themeColorValue),
+    );
     final now = DateTime.now();
     String two(int value) => value.toString().padLeft(2, '0');
     final stamp =
@@ -62,6 +55,33 @@ final class DataExportService {
       bytes: bytes,
       recordCount: rows.length,
     );
+  }
+
+  Future<List<List<Object?>>> _loadRows(TimePrecision timePrecision) async {
+    final rows = <List<Object?>>[];
+    for (var offset = 0; offset <= maxExportRecords; offset += _queryPageSize) {
+      final remaining = maxExportRecords + 1 - offset;
+      final records = await _repository.search(
+        limit: remaining < _queryPageSize ? remaining : _queryPageSize,
+        offset: offset,
+      );
+      for (final record in records) {
+        rows.add([
+          record.type.label,
+          record.category.name,
+          timePrecision == TimePrecision.date
+              ? record.occurredAt.date
+              : record.occurredAt.value,
+          record.amount.toString(),
+          record.entry.note ?? '',
+        ]);
+      }
+      if (rows.length > maxExportRecords) {
+        throw const DataTransferException('单次导出不能超过100,000条账单');
+      }
+      if (records.length < _queryPageSize) break;
+    }
+    return rows;
   }
 
   static Uint8List _buildCsv(List<List<Object?>> rows) {
@@ -86,15 +106,12 @@ final class DataExportService {
     return value;
   }
 
-  static Future<Uint8List> _buildXlsx(
-    List<List<Object?>> rows,
-    Color themeColor,
-  ) async {
+  static Uint8List _buildXlsx(List<List<Object?>> rows, int themeColorValue) {
     final excel = Excel.createExcel();
     excel.rename('Sheet1', '账单');
     excel.setDefaultSheet('账单');
     final sheet = excel['账单'];
-    final rgb = themeColor.toARGB32().toRadixString(16).padLeft(8, '0');
+    final rgb = themeColorValue.toRadixString(16).padLeft(8, '0');
     final headerStyle = CellStyle(
       bold: true,
       fontColorHex: ExcelColor.white,
@@ -136,7 +153,7 @@ final class DataExportService {
     for (var index = 0; index < widths.length; index++) {
       sheet.setColumnWidth(index, widths[index]);
     }
-    final bytes = await excel.encodeAsync();
+    final bytes = excel.encode();
     if (bytes == null) throw StateError('XLSX文件生成失败');
     return Uint8List.fromList(bytes);
   }

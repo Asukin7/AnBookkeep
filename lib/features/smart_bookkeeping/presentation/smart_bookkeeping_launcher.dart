@@ -4,11 +4,11 @@ import 'package:anbookkeep/core/errors/app_error_message.dart';
 import 'package:anbookkeep/core/logging/app_logger.dart';
 import 'package:anbookkeep/core/widgets/app_dialog.dart';
 import 'package:anbookkeep/features/smart_bookkeeping/application/smart_bookkeeping_service.dart';
+import 'package:anbookkeep/features/smart_bookkeeping/application/recognition_cancellation.dart';
 import 'package:anbookkeep/features/smart_bookkeeping/data/ai_config_repository.dart';
 import 'package:anbookkeep/features/smart_bookkeeping/domain/recognition_result.dart';
 import 'package:anbookkeep/features/smart_bookkeeping/domain/smart_bookkeeping_draft.dart';
 import 'package:anbookkeep/features/smart_bookkeeping/presentation/batch_recognition_page.dart';
-import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
@@ -302,7 +302,7 @@ class _SingleRecognitionDialog extends ConsumerStatefulWidget {
 
 class _SingleRecognitionDialogState
     extends ConsumerState<_SingleRecognitionDialog> {
-  final _cancelToken = CancelToken();
+  final _cancellation = RecognitionCancellation();
   String? _error;
 
   @override
@@ -313,7 +313,7 @@ class _SingleRecognitionDialogState
 
   @override
   void dispose() {
-    _cancelToken.cancel('弹窗关闭');
+    _cancellation.cancel('弹窗关闭');
     super.dispose();
   }
 
@@ -334,7 +334,7 @@ class _SingleRecognitionDialogState
         if (_error == null)
           OutlinedButton(
             onPressed: () {
-              _cancelToken.cancel('用户取消');
+              _cancellation.cancel('用户取消');
               Navigator.pop(context);
             },
             child: const Text('取消'),
@@ -369,7 +369,7 @@ class _SingleRecognitionDialogState
           .recognize(
             sourcePath: widget.path,
             source: widget.source,
-            cancelToken: _cancelToken,
+            cancellation: _cancellation,
           );
       if (mounted) Navigator.pop(context, draft);
     } on SmartRecognitionException catch (error) {

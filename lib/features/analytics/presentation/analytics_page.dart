@@ -2,6 +2,8 @@ import 'package:anbookkeep/app/theme/app_spacing.dart';
 import 'package:anbookkeep/app/theme/app_theme.dart';
 import 'package:anbookkeep/app/theme/app_tokens.dart';
 import 'package:anbookkeep/core/money/money_formatter.dart';
+import 'package:anbookkeep/core/datetime/app_date_policy.dart';
+import 'package:anbookkeep/core/errors/app_error_message.dart';
 import 'package:anbookkeep/core/settings/app_settings.dart';
 import 'package:anbookkeep/core/widgets/app_card.dart';
 import 'package:anbookkeep/core/widgets/app_bottom_sheet.dart';
@@ -10,6 +12,8 @@ import 'package:anbookkeep/core/widgets/app_dialog.dart';
 import 'package:anbookkeep/core/widgets/app_year_month_wheel.dart';
 import 'package:anbookkeep/core/widgets/category_icon.dart';
 import 'package:anbookkeep/features/bookkeeping/domain/entry_type.dart';
+import 'package:anbookkeep/features/bookkeeping/application/ledger_change_notifier.dart';
+import 'package:anbookkeep/features/bookkeeping/data/bookkeeping_repository.dart';
 import 'package:anbookkeep/features/analytics/data/analytics_repository.dart';
 import 'package:anbookkeep/features/analytics/domain/analytics_summary.dart';
 import 'package:fl_chart/fl_chart.dart';
@@ -87,6 +91,14 @@ class _AnalyticsPageState extends ConsumerState<AnalyticsPage> {
 
   @override
   Widget build(BuildContext context) {
+    ref.listen<int>(ledgerChangeRevisionProvider, (previous, next) {
+      if (previous != null && previous != next) {
+        final future = _load();
+        setState(() {
+          _future = future;
+        });
+      }
+    });
     final settings = ref.watch(appSettingsProvider);
     final useGrouping =
         settings.amountDisplayFormat == AmountDisplayFormat.grouped;
@@ -99,6 +111,7 @@ class _AnalyticsPageState extends ConsumerState<AnalyticsPage> {
           width: 240,
           height: AppSizes.segmentedControl,
           child: AppSegmentedButton<_AnalyticsDimension>(
+            compact: true,
             segments: const [
               ButtonSegment(
                 value: _AnalyticsDimension.expense,
@@ -127,7 +140,11 @@ class _AnalyticsPageState extends ConsumerState<AnalyticsPage> {
             return const Center(child: CircularProgressIndicator.adaptive());
           }
           if (snapshot.hasError) {
-            return Center(child: Text('统计加载失败：${snapshot.error}'));
+            return Center(
+              child: Text(
+                appErrorMessage(snapshot.error!, fallback: '统计加载失败，请重试'),
+              ),
+            );
           }
           final dataset = snapshot.data?[_dimension];
           final hasDimensionData = (dataset?.recordCount ?? 0) > 0;
@@ -178,9 +195,23 @@ class _AnalyticsPageState extends ConsumerState<AnalyticsPage> {
   }
 
   Future<void> _selectPeriod() async {
+    final dataRange = await ref
+        .read(bookkeepingRepositoryProvider)
+        .dataYearRange();
+    if (!mounted) return;
+    final bounds = AppDatePolicy.pickerBounds(
+      dataMinimumYear: dataRange?.minYear,
+      dataMaximumYear: dataRange?.maxYear,
+      anchorYears: [_selectedDate.year],
+    );
     final result = await showModalBottomSheet<(_AnalyticsPeriod, DateTime)>(
       context: context,
-      builder: (context) => _PeriodSheet(period: _period, date: _selectedDate),
+      builder: (context) => _PeriodSheet(
+        period: _period,
+        date: _selectedDate,
+        minYear: bounds.minYear,
+        maxYear: bounds.maxYear,
+      ),
     );
     if (result == null || !mounted) return;
     setState(() {
@@ -192,10 +223,17 @@ class _AnalyticsPageState extends ConsumerState<AnalyticsPage> {
 }
 
 class _PeriodSheet extends StatefulWidget {
-  const _PeriodSheet({required this.period, required this.date});
+  const _PeriodSheet({
+    required this.period,
+    required this.date,
+    required this.minYear,
+    required this.maxYear,
+  });
 
   final _AnalyticsPeriod period;
   final DateTime date;
+  final int minYear;
+  final int maxYear;
 
   @override
   State<_PeriodSheet> createState() => _PeriodSheetState();
@@ -203,7 +241,10 @@ class _PeriodSheet extends StatefulWidget {
 
 class _PeriodSheetState extends State<_PeriodSheet> {
   late _AnalyticsPeriod period = widget.period;
-  late int selectedYear = widget.date.year.clamp(2020, DateTime.now().year);
+  late int selectedYear = widget.date.year.clamp(
+    widget.minYear,
+    widget.maxYear,
+  );
   late int selectedMonth = widget.date.month;
   DateTime get date => DateTime(selectedYear, selectedMonth);
 
@@ -233,6 +274,8 @@ class _PeriodSheetState extends State<_PeriodSheet> {
             AppYearMonthWheel(
               initialYear: selectedYear,
               initialMonth: selectedMonth,
+              minYear: widget.minYear,
+              maxYear: widget.maxYear,
               showMonth: period == _AnalyticsPeriod.month,
               height: 116,
               onChanged: (value) {

@@ -4,6 +4,7 @@ import 'package:anbookkeep/app/router/app_router.dart';
 import 'package:anbookkeep/app/theme/app_spacing.dart';
 import 'package:anbookkeep/app/theme/app_tokens.dart';
 import 'package:anbookkeep/core/database/app_database.dart';
+import 'package:anbookkeep/core/datetime/app_date_policy.dart';
 import 'package:anbookkeep/core/errors/app_error_message.dart';
 import 'package:anbookkeep/core/logging/app_logger.dart';
 import 'package:anbookkeep/core/money/money.dart';
@@ -14,6 +15,7 @@ import 'package:anbookkeep/core/widgets/app_segmented_control.dart';
 import 'package:anbookkeep/core/widgets/app_dialog.dart';
 import 'package:anbookkeep/core/widgets/category_icon.dart';
 import 'package:anbookkeep/features/bookkeeping/data/bookkeeping_repository.dart';
+import 'package:anbookkeep/features/bookkeeping/application/ledger_change_notifier.dart';
 import 'package:anbookkeep/features/bookkeeping/application/ledger_year_paging_controller.dart';
 import 'package:anbookkeep/features/bookkeeping/domain/entry_type.dart';
 import 'package:anbookkeep/features/bookkeeping/presentation/bookkeeping_record_list.dart';
@@ -71,6 +73,7 @@ class _SearchPageState extends ConsumerState<SearchPage> {
   }
 
   void _syncTextCriteria() {
+    final previousCriteria = _criteria;
     final minResult = _parseMinor(_minController.text);
     final maxResult = _parseMinor(_maxController.text);
     String? error;
@@ -91,7 +94,7 @@ class _SearchPageState extends ConsumerState<SearchPage> {
       clearMaxAmount: error != null || maxResult.value == null,
     );
     if (errorChanged) setState(() {});
-    if (error == null) _scheduleSearch();
+    if (error == null && _criteria != previousCriteria) _scheduleSearch();
   }
 
   void _scheduleSearch() {
@@ -101,6 +104,9 @@ class _SearchPageState extends ConsumerState<SearchPage> {
 
   @override
   Widget build(BuildContext context) {
+    ref.listen<int>(ledgerChangeRevisionProvider, (previous, next) {
+      if (previous != null && previous != next) unawaited(_startSearch());
+    });
     final settings = ref.watch(appSettingsProvider);
     final categories = ref.watch(categoriesByTypeProvider(EntryType.expense));
     final incomeCategories = ref.watch(
@@ -206,6 +212,7 @@ class _SearchPageState extends ConsumerState<SearchPage> {
                 _startSearch();
               },
               onTextChanged: _syncTextCriteria,
+              loadDateBounds: _loadDateBounds,
               onReset: _reset,
             ),
           Expanded(
@@ -236,6 +243,20 @@ class _SearchPageState extends ConsumerState<SearchPage> {
           ),
         ],
       ),
+    );
+  }
+
+  Future<AppDateBounds> _loadDateBounds() async {
+    final dataRange = await ref
+        .read(bookkeepingRepositoryProvider)
+        .dataYearRange();
+    return AppDatePolicy.pickerBounds(
+      dataMinimumYear: dataRange?.minYear,
+      dataMaximumYear: dataRange?.maxYear,
+      anchorYears: [
+        if (_dateRange != null) _dateRange!.start.year,
+        if (_dateRange != null) _dateRange!.end.year,
+      ],
     );
   }
 
@@ -277,9 +298,9 @@ class _SearchPageState extends ConsumerState<SearchPage> {
       });
     }
     try {
-      final latest = await findLatestSearchMonth(repository, criteria);
+      final initial = await loadInitialSearchYear(repository, criteria);
       if (!mounted || generation != _searchGeneration) return;
-      if (latest == null) {
+      if (initial == null) {
         _pagingController?.invalidate();
         setState(() {
           _pagingController = null;
@@ -293,7 +314,10 @@ class _SearchPageState extends ConsumerState<SearchPage> {
         findOlderYear: (year) =>
             findOlderSearchYear(repository, criteria, year),
       );
-      await nextController.initialize(latest);
+      nextController.initializeWithRecords(
+        initial.latestMonth,
+        initial.records,
+      );
       if (!mounted || generation != _searchGeneration) {
         nextController.invalidate();
         return;
@@ -375,6 +399,7 @@ class _FilterPanel extends StatelessWidget {
     required this.onDateRangeChanged,
     required this.onCategoriesChanged,
     required this.onTextChanged,
+    required this.loadDateBounds,
     required this.onReset,
   });
 
@@ -389,6 +414,7 @@ class _FilterPanel extends StatelessWidget {
   final ValueChanged<DateTimeRange?> onDateRangeChanged;
   final ValueChanged<Set<String>> onCategoriesChanged;
   final VoidCallback onTextChanged;
+  final Future<AppDateBounds> Function() loadDateBounds;
   final VoidCallback onReset;
 
   @override
@@ -426,10 +452,12 @@ class _FilterPanel extends StatelessWidget {
                   side: BorderSide.none,
                 ),
                 onPressed: () async {
+                  final bounds = await loadDateBounds();
+                  if (!context.mounted) return;
                   final value = await showDateRangePicker(
                     context: context,
-                    firstDate: DateTime(2000),
-                    lastDate: DateTime(2100, 12, 31),
+                    firstDate: bounds.firstDate,
+                    lastDate: bounds.lastDate,
                     initialDateRange: dateRange,
                   );
                   if (value != null) onDateRangeChanged(value);

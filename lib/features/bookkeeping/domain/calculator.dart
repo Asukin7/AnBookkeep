@@ -15,6 +15,28 @@ final class CalculatorState {
   final bool isError;
   final bool isCommitted;
 
+  String get displayAmount {
+    if (!hasInput || expression.isEmpty) return '0';
+    if (!RegExp(r'[+\-×÷]').hasMatch(expression)) return expression;
+    if (result != null) return result!.toStringAsFixed(2);
+
+    var completeExpression = expression;
+    while (completeExpression.isNotEmpty &&
+        RegExp(r'[+\-×÷.]$').hasMatch(completeExpression)) {
+      completeExpression = completeExpression.substring(
+        0,
+        completeExpression.length - 1,
+      );
+    }
+    if (completeExpression.isEmpty) return '0';
+    try {
+      return CalculatorEvaluator.evaluate(completeExpression)
+          .toStringAsFixed(2);
+    } on CalculatorException {
+      return '0';
+    }
+  }
+
   String get equation {
     if (isError) return '错误';
     if (isCommitted && result != null) {

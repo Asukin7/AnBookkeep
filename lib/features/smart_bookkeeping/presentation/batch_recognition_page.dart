@@ -14,9 +14,9 @@ import 'package:anbookkeep/features/bookkeeping/data/bookkeeping_repository.dart
 import 'package:anbookkeep/features/bookkeeping/domain/save_occurrence.dart';
 import 'package:anbookkeep/features/bookkeeping/domain/entry_type.dart';
 import 'package:anbookkeep/features/smart_bookkeeping/application/smart_bookkeeping_service.dart';
+import 'package:anbookkeep/features/smart_bookkeeping/application/recognition_cancellation.dart';
 import 'package:anbookkeep/features/smart_bookkeeping/domain/recognition_result.dart';
 import 'package:anbookkeep/features/smart_bookkeeping/domain/smart_bookkeeping_draft.dart';
-import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
@@ -53,8 +53,9 @@ class _BatchRecognitionPageState extends ConsumerState<BatchRecognitionPage> {
         imagePath: widget.args.paths[index],
       ),
   ];
-  final Map<int, CancelToken> _tokens = {};
+  final Map<int, RecognitionCancellation> _cancellations = {};
   late final SmartBookkeepingService _service;
+  RecognitionContext? _recognitionContext;
   var _nextIndex = 0;
   var _running = true;
   var _cancelled = false;
@@ -85,8 +86,8 @@ class _BatchRecognitionPageState extends ConsumerState<BatchRecognitionPage> {
   @override
   void dispose() {
     _cancelled = true;
-    for (final token in _tokens.values) {
-      token.cancel('页面已关闭');
+    for (final cancellation in _cancellations.values) {
+      cancellation.cancel('页面已关闭');
     }
     for (final item in _items) {
       unawaited(_service.deleteTemporaryImage(item.imagePath));
@@ -369,7 +370,29 @@ class _BatchRecognitionPageState extends ConsumerState<BatchRecognitionPage> {
   }
 
   Future<void> _runWorkers() async {
-    await Future.wait([_worker(), _worker()]);
+    try {
+      _recognitionContext = await _service.loadRecognitionContext();
+      if (!_cancelled) await Future.wait([_worker(), _worker()]);
+    } on Object catch (error, stackTrace) {
+      _log.error(
+        'batch_context_load_failed',
+        operationId: _batchId,
+        cause: error,
+        stackTrace: stackTrace,
+      );
+      if (mounted) {
+        setState(() {
+          for (var index = 0; index < _items.length; index++) {
+            if (_items[index].status == RecognitionStatus.queued) {
+              _items[index] = _items[index].copyWith(
+                status: RecognitionStatus.failed,
+                errorMessage: appErrorMessage(error, fallback: '识别配置加载失败，请重试'),
+              );
+            }
+          }
+        });
+      }
+    }
     if (!mounted) return;
     _log.info(
       'batch_recognition_completed',
@@ -405,39 +428,45 @@ class _BatchRecognitionPageState extends ConsumerState<BatchRecognitionPage> {
         status: RecognitionStatus.processing,
       );
     });
-    final token = CancelToken();
-    _tokens[index] = token;
+    final cancellation = RecognitionCancellation();
+    _cancellations[index] = cancellation;
     try {
       final result = await _service.recognize(
         sourcePath: sourcePath,
         source: widget.args.source,
-        cancelToken: token,
+        cancellation: cancellation,
+        context: _recognitionContext,
         allowOnline: _onlineAvailable,
       );
-      if (mounted && index < _items.length) {
-        setState(() {
-          _items[index] = result;
-          if (result.onlineFailureGlobal) {
-            _onlineAvailable = false;
-            _log.warning(
-              'batch_online_ai_disabled_for_remaining_items',
-              operationId: _batchId,
-              fields: {'item': index + 1},
-            );
-          }
-        });
-        _log.info(
-          'batch_item_completed',
-          operationId: _batchId,
-          fields: {
-            'item': index + 1,
-            'status': result.status.name,
-            'usedOnlineAi': result.usedOnlineAi,
-          },
-        );
+      if (!mounted || index >= _items.length) {
+        await _service.deleteTemporaryImage(result.imagePath);
         if (sourcePath != result.imagePath) {
           await _service.deleteTemporaryImage(sourcePath);
         }
+        return;
+      }
+      setState(() {
+        _items[index] = result;
+        if (result.onlineFailureGlobal) {
+          _onlineAvailable = false;
+          _log.warning(
+            'batch_online_ai_disabled_for_remaining_items',
+            operationId: _batchId,
+            fields: {'item': index + 1},
+          );
+        }
+      });
+      _log.info(
+        'batch_item_completed',
+        operationId: _batchId,
+        fields: {
+          'item': index + 1,
+          'status': result.status.name,
+          'usedOnlineAi': result.usedOnlineAi,
+        },
+      );
+      if (sourcePath != result.imagePath) {
+        await _service.deleteTemporaryImage(sourcePath);
       }
     } on SmartRecognitionException catch (error) {
       _log.warning(
@@ -458,7 +487,7 @@ class _BatchRecognitionPageState extends ConsumerState<BatchRecognitionPage> {
         );
       });
     } finally {
-      _tokens.remove(index);
+      _cancellations.remove(index);
     }
   }
 
@@ -469,8 +498,8 @@ class _BatchRecognitionPageState extends ConsumerState<BatchRecognitionPage> {
       fields: {'finishedCount': _finishedCount, 'total': _items.length},
     );
     _cancelled = true;
-    for (final token in _tokens.values) {
-      token.cancel('用户取消');
+    for (final cancellation in _cancellations.values) {
+      cancellation.cancel('用户取消');
     }
     setState(() {
       for (var index = _nextIndex; index < _items.length; index++) {

@@ -1404,7 +1404,7 @@ class $$CategoriesTableTableManager
           withReferenceMapper: (p0) => p0
               .map(
                 (e) => (
-                  e.readTable(table),
+                  e.readTable<$CategoriesTable, CategoryRow>(table),
                   $$CategoriesTableReferences(db, table, e),
                 ),
               )
@@ -1787,7 +1787,7 @@ class $$BookkeepingEntriesTableTableManager
           withReferenceMapper: (p0) => p0
               .map(
                 (e) => (
-                  e.readTable(table),
+                  e.readTable<$BookkeepingEntriesTable, TransactionRow>(table),
                   $$BookkeepingEntriesTableReferences(db, table, e),
                 ),
               )

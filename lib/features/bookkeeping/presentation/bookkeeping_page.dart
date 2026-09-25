@@ -4,6 +4,7 @@ import 'package:anbookkeep/app/theme/app_spacing.dart';
 import 'package:anbookkeep/app/theme/app_tokens.dart';
 import 'package:anbookkeep/core/database/app_database.dart';
 import 'package:anbookkeep/core/datetime/local_minute.dart';
+import 'package:anbookkeep/core/datetime/app_date_policy.dart';
 import 'package:anbookkeep/core/errors/app_error_message.dart';
 import 'package:anbookkeep/core/money/money.dart';
 import 'package:anbookkeep/core/settings/app_settings.dart';
@@ -19,6 +20,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 const _calculatorKeyInset = 3.0;
+const _categoryColumnCount = 4;
+const _categoryTileExtent = 78.0;
 
 class BookkeepingPage extends ConsumerStatefulWidget {
   const BookkeepingPage({
@@ -41,9 +44,11 @@ class BookkeepingPage extends ConsumerStatefulWidget {
 class _BookkeepingPageState extends ConsumerState<BookkeepingPage> {
   final _noteController = TextEditingController();
   final _calculator = CalculatorController();
+  final _categoryScrollController = ScrollController();
 
   EntryType _type = EntryType.expense;
   String? _selectedCategoryId;
+  String? _positionedCategoryId;
   LocalMinute _occurredAt = LocalMinute.now();
   bool _isSaving = false;
   bool _isLoading = false;
@@ -71,6 +76,7 @@ class _BookkeepingPageState extends ConsumerState<BookkeepingPage> {
   @override
   void dispose() {
     _noteController.dispose();
+    _categoryScrollController.dispose();
     super.dispose();
   }
 
@@ -150,11 +156,13 @@ class _BookkeepingPageState extends ConsumerState<BookkeepingPage> {
   }
 
   Widget _buildCategoryGrid(List<CategoryRow> categories) {
+    _positionSelectedCategory(categories);
     return GridView.builder(
+      controller: _categoryScrollController,
       padding: EdgeInsets.zero,
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 4,
-        mainAxisExtent: 78,
+        crossAxisCount: _categoryColumnCount,
+        mainAxisExtent: _categoryTileExtent,
         mainAxisSpacing: AppSpacing.xxs,
         crossAxisSpacing: AppSpacing.xxs,
       ),
@@ -165,7 +173,10 @@ class _BookkeepingPageState extends ConsumerState<BookkeepingPage> {
         final color = Color(category.colorValue);
         return InkWell(
           borderRadius: BorderRadius.circular(AppRadii.input),
-          onTap: () => setState(() => _selectedCategoryId = category.id),
+          onTap: () => setState(() {
+            _selectedCategoryId = category.id;
+            _positionedCategoryId = category.id;
+          }),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
@@ -192,12 +203,38 @@ class _BookkeepingPageState extends ConsumerState<BookkeepingPage> {
     );
   }
 
+  void _positionSelectedCategory(List<CategoryRow> categories) {
+    final selectedId = _selectedCategoryId;
+    if (selectedId == null || selectedId == _positionedCategoryId) return;
+    final index = categories.indexWhere(
+      (category) => category.id == selectedId,
+    );
+    if (index < 0) return;
+    _positionedCategoryId = selectedId;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted ||
+          _selectedCategoryId != selectedId ||
+          !_categoryScrollController.hasClients) {
+        return;
+      }
+      final position = _categoryScrollController.position;
+      final row = index ~/ _categoryColumnCount;
+      final rowBottom = (row + 1) * _categoryTileExtent + row * AppSpacing.xxs;
+      final offset = (rowBottom - position.viewportDimension).clamp(
+        0.0,
+        position.maxScrollExtent,
+      );
+      _categoryScrollController.jumpTo(offset);
+    });
+  }
+
   void _changeType(int index) {
     final nextType = index == 0 ? EntryType.expense : EntryType.income;
     if (nextType == _type) return;
     setState(() {
       _type = nextType;
       _selectedCategoryId = null;
+      _positionedCategoryId = null;
       _calculator.press('AC');
     });
   }
@@ -261,11 +298,20 @@ class _BookkeepingPageState extends ConsumerState<BookkeepingPage> {
 
   Future<void> _selectDateTime() async {
     final current = _occurredAt.toDateTime();
+    final dataRange = await ref
+        .read(bookkeepingRepositoryProvider)
+        .dataYearRange();
+    if (!mounted) return;
+    final bounds = AppDatePolicy.pickerBounds(
+      dataMinimumYear: dataRange?.minYear,
+      dataMaximumYear: dataRange?.maxYear,
+      anchorYears: [current.year],
+    );
     final date = await showDatePicker(
       context: context,
       initialDate: current,
-      firstDate: DateTime(2000),
-      lastDate: DateTime(2100, 12, 31),
+      firstDate: bounds.firstDate,
+      lastDate: bounds.lastDate,
     );
     if (date == null || !mounted) return;
     if (ref.read(appSettingsProvider).timePrecision == TimePrecision.date) {
@@ -479,7 +525,6 @@ class _CalculatorDisplay extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final result = state.result;
     final hasOperator = RegExp(r'[+\-×÷]').hasMatch(state.expression);
     final equation = hasOperator
         ? (state.isCommitted ? state.equation : state.expression)
@@ -497,9 +542,7 @@ class _CalculatorDisplay extends StatelessWidget {
           ),
           const SizedBox(height: AppSpacing.xxs),
           Text(
-            state.isError
-                ? '请使用退格键恢复'
-                : '￥${(result ?? DecimalZero.value).toStringAsFixed(2)}',
+            state.isError ? '请使用退格键恢复' : '￥${state.displayAmount}',
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: Theme.of(context).textTheme.headlineSmall,
@@ -508,10 +551,6 @@ class _CalculatorDisplay extends StatelessWidget {
       ),
     );
   }
-}
-
-abstract final class DecimalZero {
-  static final value = Money.zero.value;
 }
 
 class CalculatorKeyboard extends StatelessWidget {
@@ -634,6 +673,7 @@ class _CalculatorButton extends StatefulWidget {
 
 class _CalculatorButtonState extends State<_CalculatorButton> {
   Timer? _repeatTimer;
+  bool _didRepeat = false;
 
   @override
   void dispose() {
@@ -643,16 +683,29 @@ class _CalculatorButtonState extends State<_CalculatorButton> {
 
   void _startRepeating() {
     if (!widget.repeatable) return;
-    widget.onPressed();
     _repeatTimer?.cancel();
-    _repeatTimer = Timer.periodic(const Duration(milliseconds: 90), (_) {
+    _didRepeat = false;
+    _repeatTimer = Timer(const Duration(milliseconds: 400), () {
+      if (!mounted) return;
+      _didRepeat = true;
       widget.onPressed();
+      _repeatTimer = Timer.periodic(const Duration(milliseconds: 90), (_) {
+        widget.onPressed();
+      });
     });
   }
 
   void _stopRepeating() {
     _repeatTimer?.cancel();
     _repeatTimer = null;
+  }
+
+  void _handlePressed() {
+    if (_didRepeat) {
+      _didRepeat = false;
+      return;
+    }
+    widget.onPressed();
   }
 
   @override
@@ -674,7 +727,7 @@ class _CalculatorButtonState extends State<_CalculatorButton> {
             child: Text(widget.label),
           )
         : TextButton(
-            onPressed: widget.onPressed,
+            onPressed: widget.repeatable ? _handlePressed : widget.onPressed,
             style: TextButton.styleFrom(
               foregroundColor: Theme.of(context).colorScheme.onSurface,
               backgroundColor: Theme.of(context)
@@ -695,12 +748,11 @@ class _CalculatorButtonState extends State<_CalculatorButton> {
                 : Text(widget.label),
           );
     if (!widget.repeatable) return button;
-    return GestureDetector(
-      onTap: widget.onPressed,
-      onLongPressStart: (_) => _startRepeating(),
-      onLongPressEnd: (_) => _stopRepeating(),
-      onLongPressCancel: _stopRepeating,
-      child: AbsorbPointer(child: button),
+    return Listener(
+      onPointerDown: (_) => _startRepeating(),
+      onPointerUp: (_) => _stopRepeating(),
+      onPointerCancel: (_) => _stopRepeating(),
+      child: button,
     );
   }
 }
@@ -744,6 +796,7 @@ class _TypeToggle extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AppSegmentedButton<EntryType>(
+      compact: true,
       segments: const [
         ButtonSegment(value: EntryType.expense, label: Text('支出')),
         ButtonSegment(value: EntryType.income, label: Text('收入')),
