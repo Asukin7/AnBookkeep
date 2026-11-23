@@ -1,8 +1,10 @@
+import 'package:anbookkeep/app/router/app_router.dart';
 import 'package:anbookkeep/app/theme/app_spacing.dart';
 import 'package:anbookkeep/app/theme/app_theme.dart';
 import 'package:anbookkeep/app/theme/app_tokens.dart';
 import 'package:anbookkeep/core/money/money_formatter.dart';
 import 'package:anbookkeep/core/datetime/app_date_policy.dart';
+import 'package:anbookkeep/core/datetime/local_minute.dart';
 import 'package:anbookkeep/core/errors/app_error_message.dart';
 import 'package:anbookkeep/core/settings/app_settings.dart';
 import 'package:anbookkeep/core/widgets/app_card.dart';
@@ -16,9 +18,11 @@ import 'package:anbookkeep/features/bookkeeping/application/ledger_change_notifi
 import 'package:anbookkeep/features/bookkeeping/data/bookkeeping_repository.dart';
 import 'package:anbookkeep/features/analytics/data/analytics_repository.dart';
 import 'package:anbookkeep/features/analytics/domain/analytics_summary.dart';
+import 'package:anbookkeep/features/search/domain/search_criteria.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 const _metricSelectorArrowWidth = AppSizes.iconAuxiliary;
 const _metricSelectorVerticalInset = 2.0;
@@ -43,6 +47,24 @@ class _AnalyticsPageState extends ConsumerState<AnalyticsPage> {
   bool _progressView = false;
   Future<Map<_AnalyticsDimension, AnalyticsDataset>>? _future;
 
+  ({String? start, String? end}) get _dateBounds {
+    final year = _selectedDate.year;
+    final month = _selectedDate.month;
+    final range = switch (_period) {
+      _AnalyticsPeriod.month => (
+        DateTime(year, month),
+        DateTime(year, month + 1, 0),
+      ),
+      _AnalyticsPeriod.year => (DateTime(year), DateTime(year, 12, 31)),
+      _AnalyticsPeriod.all => null,
+    };
+    if (range == null) return (start: null, end: null);
+    return (
+      start: LocalMinute.fromDateTime(range.$1).date,
+      end: LocalMinute.fromDateTime(range.$2).date,
+    );
+  }
+
   @override
   void initState() {
     super.initState();
@@ -56,31 +78,14 @@ class _AnalyticsPageState extends ConsumerState<AnalyticsPage> {
       _AnalyticsPeriod.year => AnalyticsGranularity.month,
       _AnalyticsPeriod.all => AnalyticsGranularity.year,
     };
-    String? startDate;
-    String? endDate;
-    if (_period != _AnalyticsPeriod.all) {
-      final year = _selectedDate.year.toString().padLeft(4, '0');
-      if (_period == _AnalyticsPeriod.year) {
-        startDate = '$year-01-01';
-        endDate = '$year-12-31';
-      } else {
-        final month = _selectedDate.month.toString().padLeft(2, '0');
-        final lastDay = DateTime(
-          _selectedDate.year,
-          _selectedDate.month + 1,
-          0,
-        ).day;
-        startDate = '$year-$month-01';
-        endDate = '$year-$month-${lastDay.toString().padLeft(2, '0')}';
-      }
-    }
+    final bounds = _dateBounds;
     final values = await Future.wait([
       for (final dimension in _AnalyticsDimension.values)
         repository.load(
           type: _dimensionType(dimension),
           granularity: granularity,
-          startDate: startDate,
-          endDate: endDate,
+          startDate: bounds.start,
+          endDate: bounds.end,
         ),
     ]);
     return {
@@ -181,6 +186,7 @@ class _AnalyticsPageState extends ConsumerState<AnalyticsPage> {
                     progressView: _progressView,
                     onToggle: () =>
                         setState(() => _progressView = !_progressView),
+                    onCategoryTap: _openCategorySearch,
                     useGrouping: useGrouping,
                     incomeColor: settings.incomeColor,
                     expenseColor: settings.expenseColor,
@@ -190,6 +196,19 @@ class _AnalyticsPageState extends ConsumerState<AnalyticsPage> {
             ],
           );
         },
+      ),
+    );
+  }
+
+  void _openCategorySearch(AnalyticsCategoryTotal category) {
+    final bounds = _dateBounds;
+    context.push(
+      AppRoutes.search,
+      extra: SearchCriteria(
+        type: category.type,
+        startDate: bounds.start,
+        endDate: bounds.end,
+        categoryIds: [category.id],
       ),
     );
   }
@@ -710,6 +729,7 @@ class _CategoryCard extends StatefulWidget {
     required this.dimension,
     required this.progressView,
     required this.onToggle,
+    required this.onCategoryTap,
     required this.useGrouping,
     required this.incomeColor,
     required this.expenseColor,
@@ -718,6 +738,7 @@ class _CategoryCard extends StatefulWidget {
   final _AnalyticsDimension dimension;
   final bool progressView;
   final VoidCallback onToggle;
+  final ValueChanged<AnalyticsCategoryTotal> onCategoryTap;
   final bool useGrouping;
   final Color incomeColor;
   final Color expenseColor;
@@ -895,14 +916,18 @@ class _CategoryCardState extends State<_CategoryCard> {
             ],
             if (widget.progressView)
               for (var i = 0; i < items.length; i++)
-                _CategoryRow(
-                  item: items[i],
-                  total: total,
-                  color: Color(items[i].$1.colorValue),
-                  useGrouping: widget.useGrouping,
-                  amountColor: items[i].$1.type == EntryType.income
-                      ? widget.incomeColor
-                      : widget.expenseColor,
+                InkWell(
+                  onTap: () => widget.onCategoryTap(items[i].$1),
+                  borderRadius: BorderRadius.circular(AppRadii.small),
+                  child: _CategoryRow(
+                    item: items[i],
+                    total: total,
+                    color: Color(items[i].$1.colorValue),
+                    useGrouping: widget.useGrouping,
+                    amountColor: items[i].$1.type == EntryType.income
+                        ? widget.incomeColor
+                        : widget.expenseColor,
+                  ),
                 ),
           ],
         ),

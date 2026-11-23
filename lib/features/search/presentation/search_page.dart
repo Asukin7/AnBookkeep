@@ -33,7 +33,9 @@ String _searchDateText(DateTime date) =>
     '${date.year.toString().padLeft(4, '0')}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
 
 class SearchPage extends ConsumerStatefulWidget {
-  const SearchPage({super.key});
+  const SearchPage({super.key, this.initialCriteria});
+
+  final SearchCriteria? initialCriteria;
 
   @override
   ConsumerState<SearchPage> createState() => _SearchPageState();
@@ -43,7 +45,7 @@ class _SearchPageState extends ConsumerState<SearchPage> {
   final _keywordController = TextEditingController();
   final _minController = TextEditingController();
   final _maxController = TextEditingController();
-  SearchCriteria _criteria = SearchCriteria();
+  late SearchCriteria _criteria;
   String? _amountError;
   Timer? _searchDebounce;
   int _searchGeneration = 0;
@@ -52,13 +54,30 @@ class _SearchPageState extends ConsumerState<SearchPage> {
   bool _initialLoading = true;
   String? _loadError;
   bool _expanded = false;
-  EntryType? _type;
   DateTimeRange? _dateRange;
-  final _categoryIds = <String>{};
 
   @override
   void initState() {
     super.initState();
+    final initial = widget.initialCriteria;
+    _criteria = initial ?? SearchCriteria();
+    if (initial != null) {
+      _keywordController.text = initial.keyword;
+      if (initial.minAmountMinor case final minimum?) {
+        _minController.text = Money.fromMinorUnits(minimum).toString();
+      }
+      if (initial.maxAmountMinor case final maximum?) {
+        _maxController.text = Money.fromMinorUnits(maximum).toString();
+      }
+      final start = initial.startDate;
+      final end = initial.endDate;
+      if (start != null && end != null) {
+        _dateRange = DateTimeRange(
+          start: DateTime.parse(start),
+          end: DateTime.parse(end),
+        );
+      }
+    }
     Future<void>.microtask(_startSearch);
   }
 
@@ -112,7 +131,7 @@ class _SearchPageState extends ConsumerState<SearchPage> {
     final incomeCategories = ref.watch(
       categoriesByTypeProvider(EntryType.income),
     );
-    final availableCategories = switch (_type) {
+    final availableCategories = switch (_criteria.type) {
       EntryType.expense => categories.asData?.value ?? const <CategoryRow>[],
       EntryType.income =>
         incomeCategories.asData?.value ?? const <CategoryRow>[],
@@ -170,17 +189,15 @@ class _SearchPageState extends ConsumerState<SearchPage> {
           ),
           if (_expanded)
             _FilterPanel(
-              type: _type,
+              type: _criteria.type,
               dateRange: _dateRange,
-              categoryIds: _categoryIds,
+              categoryIds: _criteria.categoryIds.toSet(),
               categories: availableCategories,
               minController: _minController,
               maxController: _maxController,
               amountError: _amountError,
               onTypeChanged: (value) {
                 setState(() {
-                  _type = value;
-                  _categoryIds.clear();
                   _criteria = _criteria.copyWith(
                     type: value,
                     clearType: value == null,
@@ -204,9 +221,6 @@ class _SearchPageState extends ConsumerState<SearchPage> {
               },
               onCategoriesChanged: (value) {
                 setState(() {
-                  _categoryIds
-                    ..clear()
-                    ..addAll(value);
                   _criteria = _criteria.copyWith(categoryIds: value);
                 });
                 _startSearch();
@@ -265,9 +279,7 @@ class _SearchPageState extends ConsumerState<SearchPage> {
     _minController.clear();
     _maxController.clear();
     setState(() {
-      _type = null;
       _dateRange = null;
-      _categoryIds.clear();
       _amountError = null;
       _criteria = SearchCriteria();
     });

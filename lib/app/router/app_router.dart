@@ -4,6 +4,7 @@ import 'package:anbookkeep/features/detail/presentation/detail_page.dart';
 import 'package:anbookkeep/features/data_transfer/presentation/data_management_page.dart';
 import 'package:anbookkeep/features/data_transfer/presentation/export_bills_page.dart';
 import 'package:anbookkeep/features/data_transfer/presentation/import_bills_page.dart';
+import 'package:anbookkeep/features/search/domain/search_criteria.dart';
 import 'package:anbookkeep/features/search/presentation/search_page.dart';
 import 'package:anbookkeep/features/settings/presentation/settings_page.dart';
 import 'package:anbookkeep/features/settings/presentation/category_management_page.dart';
@@ -77,7 +78,12 @@ final appRouter = GoRouter(
     ),
     GoRoute(
       path: AppRoutes.search,
-      builder: (context, state) => const SearchPage(),
+      builder: (context, state) {
+        final criteria = state.extra;
+        return SearchPage(
+          initialCriteria: criteria is SearchCriteria ? criteria : null,
+        );
+      },
     ),
     GoRoute(
       path: AppRoutes.batchRecognition,

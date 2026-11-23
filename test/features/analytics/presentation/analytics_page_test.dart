@@ -1,3 +1,4 @@
+import 'package:anbookkeep/app/router/app_router.dart';
 import 'package:anbookkeep/core/database/app_database.dart';
 import 'package:anbookkeep/core/database/database_provider.dart';
 import 'package:anbookkeep/core/datetime/local_minute.dart';
@@ -12,6 +13,7 @@ import 'package:anbookkeep/features/analytics/presentation/analytics_page.dart';
 import 'package:anbookkeep/features/bookkeeping/data/bookkeeping_repository.dart';
 import 'package:anbookkeep/features/bookkeeping/application/ledger_change_notifier.dart';
 import 'package:anbookkeep/features/bookkeeping/domain/entry_type.dart';
+import 'package:anbookkeep/features/search/presentation/search_page.dart';
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -158,6 +160,140 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('-133.50'), findsOneWidget);
+  });
+
+  testWidgets('category progress row opens search with the analysis filters', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final now = DateTime.now();
+    final lastDay = DateTime(now.year, now.month + 1, 0, 23, 59);
+    final previousMonth = DateTime(now.year, now.month, 0, 23, 59);
+    final previousYear = DateTime(now.year - 1, 12, 1);
+    final repository = BookkeepingRepository(database);
+    for (final (date, note) in [
+      (lastDay, '月底购物'),
+      (previousMonth, '上月购物'),
+      (previousYear, '去年购物'),
+    ]) {
+      await repository.create(
+        type: EntryType.expense,
+        categoryId: 'expense-shopping',
+        amount: Money.fromMinorUnits(2200),
+        occurredAt: LocalMinute.fromDateTime(date),
+        note: note,
+      );
+    }
+
+    appRouter.go(AppRoutes.analytics);
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [appDatabaseProvider.overrideWithValue(database)],
+        child: MaterialApp.router(routerConfig: appRouter),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.view_list_rounded));
+    await tester.pumpAndSettle();
+
+    Future<void> expandFilters() async {
+      expect(find.byType(AppSegmentedButton<EntryType?>), findsNothing);
+      await tester.tap(find.byTooltip('展开筛选'));
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> openShoppingSearch() async {
+      final shopping = find.text('购物');
+      await tester.ensureVisible(shopping);
+      await tester.tap(shopping);
+      await tester.pumpAndSettle();
+      expect(find.byType(SearchPage), findsOneWidget);
+      expect(find.text('月底购物'), findsOneWidget);
+      expect(find.text('-128.50'), findsNothing);
+      await expandFilters();
+      expect(
+        tester
+            .widget<AppSegmentedButton<EntryType?>>(
+              find.byType(AppSegmentedButton<EntryType?>),
+            )
+            .selected,
+        {EntryType.expense},
+      );
+      expect(find.text('已选1项分类'), findsOneWidget);
+    }
+
+    await openShoppingSearch();
+    expect(
+      find.text(
+        searchDateRangeText(
+          DateTimeRange(start: DateTime(now.year, now.month), end: lastDay),
+        ),
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('上月购物'), findsNothing);
+    expect(find.text('去年购物'), findsNothing);
+
+    await tester.tap(find.byType(BackButton));
+    await tester.pumpAndSettle();
+    expect(find.byIcon(Icons.donut_large_rounded), findsOneWidget);
+
+    Future<void> selectPeriod(String periodLabel) async {
+      final dateLabel = find.text('${now.year}年${now.month}月');
+      await tester.ensureVisible(dateLabel);
+      await tester.tap(dateLabel);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(periodLabel));
+      await tester.tap(find.widgetWithText(FilledButton, '确认'));
+      await tester.pumpAndSettle();
+    }
+
+    await selectPeriod('年');
+    await openShoppingSearch();
+    expect(find.text('${now.year}-01-01 ~ ${now.year}-12-31'), findsOneWidget);
+    expect(find.text('去年购物'), findsNothing);
+    await tester.tap(find.byType(BackButton));
+    await tester.pumpAndSettle();
+
+    final yearLabel = find.text('${now.year}年');
+    await tester.ensureVisible(yearLabel);
+    await tester.tap(yearLabel);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('全部'));
+    await tester.tap(find.widgetWithText(FilledButton, '确认'));
+    await tester.pumpAndSettle();
+    await openShoppingSearch();
+    expect(find.text('全部时间'), findsOneWidget);
+    expect(find.text('上月购物'), findsOneWidget);
+    expect(find.text('去年购物'), findsOneWidget);
+
+    await tester.tap(find.byType(BackButton));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('收入'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('工资'));
+    await tester.pumpAndSettle();
+    expect(find.byType(SearchPage), findsOneWidget);
+    expect(find.text('工资'), findsOneWidget);
+    expect(find.text('月底购物'), findsNothing);
+    await expandFilters();
+    expect(
+      tester
+          .widget<AppSegmentedButton<EntryType?>>(
+            find.byType(AppSegmentedButton<EntryType?>),
+          )
+          .selected,
+      {EntryType.income},
+    );
+
+    await tester.tap(find.byType(BackButton));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('结余'));
+    await tester.pumpAndSettle();
+    expect(find.text('分类分析'), findsNothing);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(milliseconds: 1));
   });
 
   testWidgets('charts use clean axes, average line and category colors', (
