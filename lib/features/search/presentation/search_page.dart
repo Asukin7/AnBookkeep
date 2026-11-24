@@ -18,6 +18,7 @@ import 'package:anbookkeep/core/widgets/category_icon.dart';
 import 'package:anbookkeep/features/bookkeeping/data/bookkeeping_repository.dart';
 import 'package:anbookkeep/features/bookkeeping/application/ledger_change_notifier.dart';
 import 'package:anbookkeep/features/bookkeeping/application/ledger_year_paging_controller.dart';
+import 'package:anbookkeep/features/bookkeeping/domain/bookkeeping_search_order.dart';
 import 'package:anbookkeep/features/bookkeeping/domain/entry_type.dart';
 import 'package:anbookkeep/features/bookkeeping/presentation/bookkeeping_record_list.dart';
 import 'package:anbookkeep/features/search/data/search_provider.dart';
@@ -45,7 +46,9 @@ class _SearchPageState extends ConsumerState<SearchPage> {
   Timer? _searchDebounce;
   int _searchGeneration = 0;
   LedgerYearPagingController? _pagingController;
+  _AmountSearchPaging? _amountPaging;
   final _listController = BookkeepingRecordListController();
+  final _amountListController = ScrollController();
   bool _initialLoading = true;
   String? _loadError;
   bool _expanded = false;
@@ -53,6 +56,7 @@ class _SearchPageState extends ConsumerState<SearchPage> {
   @override
   void initState() {
     super.initState();
+    _amountListController.addListener(_prefetchAmountPage);
     final initial = widget.initialCriteria;
     _criteria = initial ?? SearchCriteria();
     if (initial != null) {
@@ -71,6 +75,7 @@ class _SearchPageState extends ConsumerState<SearchPage> {
   void dispose() {
     _searchDebounce?.cancel();
     _pagingController?.invalidate();
+    _amountListController.dispose();
     _keywordController.dispose();
     _minController.dispose();
     _maxController.dispose();
@@ -95,8 +100,8 @@ class _SearchPageState extends ConsumerState<SearchPage> {
       keyword: _keywordController.text.trim(),
       minAmountMinor: error == null ? minResult.value : null,
       maxAmountMinor: error == null ? maxResult.value : null,
-      clearMinAmount: error != null || minResult.value == null,
-      clearMaxAmount: error != null || maxResult.value == null,
+      clearMinAmount: error == null && minResult.value == null,
+      clearMaxAmount: error == null && maxResult.value == null,
     );
     if (errorChanged) setState(() {});
     if (error != null) {
@@ -127,9 +132,6 @@ class _SearchPageState extends ConsumerState<SearchPage> {
         incomeCategories.asData?.value ?? const <CategoryRow>[],
       null => const <CategoryRow>[],
     };
-    final useGrouping =
-        settings.amountDisplayFormat == AmountDisplayFormat.grouped;
-    final pages = _pagingController?.pages ?? const <LedgerMonthPage>[];
     return Scaffold(
       appBar: AppBar(
         leading: BackButton(
@@ -176,6 +178,7 @@ class _SearchPageState extends ConsumerState<SearchPage> {
               minController: _minController,
               maxController: _maxController,
               amountError: _amountError,
+              order: _criteria.order,
               onTypeChanged: (value) {
                 setState(() {
                   _criteria = _criteria.copyWith(
@@ -197,37 +200,71 @@ class _SearchPageState extends ConsumerState<SearchPage> {
                 _startSearch();
               },
               onTextChanged: _syncTextCriteria,
+              onSort: _cycleSort,
               onReset: _reset,
             ),
-          Expanded(
-            child: _initialLoading
-                ? const Center(child: CircularProgressIndicator.adaptive())
-                : _loadError != null
-                ? Center(child: Text(_loadError!))
-                : pages.isEmpty
-                ? const Center(child: Text('暂无符合条件的账单'))
-                : BookkeepingRecordList(
-                    controller: _listController,
-                    pages: pages,
-                    centerMonth: _pagingController?.newestMonth,
-                    onReachBottom: _loadOlderYear,
-                    onDelete: _delete,
-                    onTap: (record) async {
-                      await context.push(
-                        '${AppRoutes.bookkeeping}/${record.entry.id}/edit',
-                      );
-                      await _startSearch();
-                    },
-                    useGrouping: useGrouping,
-                    timePrecision: settings.timePrecision,
-                    incomeColor: settings.incomeColor,
-                    expenseColor: settings.expenseColor,
-                    padding: AppSpacing.pagePadding,
-                  ),
-          ),
+          Expanded(child: _buildResults(settings)),
         ],
       ),
     );
+  }
+
+  Widget _buildResults(AppSettings settings) {
+    if (_initialLoading) {
+      return const Center(child: CircularProgressIndicator.adaptive());
+    }
+    if (_loadError case final error?) return Center(child: Text(error));
+    final useGrouping =
+        settings.amountDisplayFormat == AmountDisplayFormat.grouped;
+    final amounts = _amountPaging?.records;
+    if (amounts != null && amounts.isNotEmpty) {
+      return ListView.separated(
+        controller: _amountListController,
+        padding: AppSpacing.pagePadding,
+        itemCount: amounts.length,
+        separatorBuilder: (_, _) =>
+            const SizedBox(height: AppSpacing.controlGap),
+        itemBuilder: (context, index) {
+          final record = amounts[index];
+          return AppCard(
+            key: ValueKey(record.entry.id),
+            clipBehavior: Clip.antiAlias,
+            child: BookkeepingRecordTile(
+              record: record,
+              onDelete: _delete,
+              onTap: _edit,
+              showDate: true,
+              useGrouping: useGrouping,
+              timePrecision: settings.timePrecision,
+              incomeColor: settings.incomeColor,
+              expenseColor: settings.expenseColor,
+            ),
+          );
+        },
+      );
+    }
+    final pages = _pagingController?.pages ?? const <LedgerMonthPage>[];
+    if (pages.isEmpty) {
+      return const Center(child: Text('暂无符合条件的账单'));
+    }
+    return BookkeepingRecordList(
+      controller: _listController,
+      pages: pages,
+      centerMonth: pages.first.month,
+      oldestFirst: _criteria.order == BookkeepingSearchOrder.timeAscending,
+      onReachBottom: _loadNextYear,
+      onDelete: _delete,
+      onTap: _edit,
+      useGrouping: useGrouping,
+      timePrecision: settings.timePrecision,
+      incomeColor: settings.incomeColor,
+      expenseColor: settings.expenseColor,
+    );
+  }
+
+  Future<void> _edit(BookkeepingRecord record) async {
+    await context.push('${AppRoutes.bookkeeping}/${record.entry.id}/edit');
+    if (mounted) await _startSearch();
   }
 
   Future<void> _selectDate({required bool isStart}) async {
@@ -262,6 +299,11 @@ class _SearchPageState extends ConsumerState<SearchPage> {
     unawaited(_startSearch());
   }
 
+  void _cycleSort() {
+    setState(() => _criteria = _criteria.copyWith(order: _criteria.order.next));
+    unawaited(_startSearch(resetResults: true));
+  }
+
   void _reset() {
     _keywordController.clear();
     _minController.clear();
@@ -270,7 +312,7 @@ class _SearchPageState extends ConsumerState<SearchPage> {
       _amountError = null;
       _criteria = SearchCriteria();
     });
-    _startSearch();
+    unawaited(_startSearch(resetResults: true));
   }
 
   Future<void> _delete(BookkeepingRecord record) async {
@@ -285,54 +327,60 @@ class _SearchPageState extends ConsumerState<SearchPage> {
     if (mounted) await _startSearch();
   }
 
-  Future<void> _startSearch() async {
+  Future<void> _startSearch({bool resetResults = false}) async {
+    if (!mounted) return;
     _searchDebounce?.cancel();
     final generation = ++_searchGeneration;
     final criteria = _criteria;
     final repository = ref.read(bookkeepingRepositoryProvider);
-    if (_pagingController == null && mounted) {
+    if (resetResults || (_pagingController == null && _amountPaging == null)) {
+      _pagingController?.invalidate();
       setState(() {
+        _pagingController = null;
+        _amountPaging = null;
         _initialLoading = true;
         _loadError = null;
       });
     }
     try {
-      final initial = await loadInitialSearchYear(repository, criteria);
+      LedgerYearPagingController? nextTime;
+      _AmountSearchPaging? nextAmount;
+      if (criteria.order.isAmount) {
+        nextAmount = _AmountSearchPaging(
+          (after) => loadAmountSearchPage(repository, criteria, after: after),
+        );
+        await nextAmount.loadNext();
+      } else {
+        final initial = await loadInitialSearchYear(repository, criteria);
+        if (initial != null) {
+          nextTime = LedgerYearPagingController(
+            loadYear: (year) => loadSearchYear(repository, criteria, year),
+            findOlderYear: (year) =>
+                findOlderSearchYear(repository, criteria, year),
+            findNewerYear: (year) =>
+                findNewerSearchYear(repository, criteria, year),
+          )..initializeWithRecords(initial.anchorMonth, initial.records);
+        }
+      }
       if (!mounted || generation != _searchGeneration) return;
-      if (initial == null) {
-        _pagingController?.invalidate();
-        setState(() {
-          _pagingController = null;
-          _initialLoading = false;
-          _loadError = null;
-        });
-        return;
-      }
-      final nextController = LedgerYearPagingController(
-        loadYear: (year) => loadSearchYear(repository, criteria, year),
-        findOlderYear: (year) =>
-            findOlderSearchYear(repository, criteria, year),
-      );
-      nextController.initializeWithRecords(
-        initial.latestMonth,
-        initial.records,
-      );
-      if (!mounted || generation != _searchGeneration) {
-        nextController.invalidate();
-        return;
-      }
       _pagingController?.invalidate();
       setState(() {
-        _pagingController = nextController;
+        _pagingController = nextTime;
+        _amountPaging = nextAmount;
         _initialLoading = false;
         _loadError = null;
       });
       await WidgetsBinding.instance.endOfFrame;
-      _listController.jumpToStart();
-      await _loadOlderYear();
+      if (!mounted || generation != _searchGeneration) return;
+      if (nextTime != null) {
+        _listController.jumpToStart();
+        await _loadNextYear();
+      } else if (_amountListController.hasClients) {
+        _amountListController.jumpTo(0);
+      }
     } on Object catch (error) {
       if (!mounted || generation != _searchGeneration) return;
-      if (_pagingController == null) {
+      if (_pagingController == null && _amountPaging == null) {
         setState(() {
           _initialLoading = false;
           _loadError = appErrorMessage(error, fallback: '搜索失败，请重试');
@@ -347,25 +395,49 @@ class _SearchPageState extends ConsumerState<SearchPage> {
     }
   }
 
-  Future<void> _loadOlderYear() async {
+  Future<void> _loadNextYear() async {
     final controller = _pagingController;
-    if (controller == null ||
-        controller.isLoadingOlder ||
-        !controller.hasOlder) {
-      return;
-    }
+    if (controller == null) return;
     try {
-      final changed = await controller.loadOlder();
+      final changed =
+          await (_criteria.order == BookkeepingSearchOrder.timeAscending
+              ? controller.loadNewer()
+              : controller.loadOlder());
       if (changed && mounted && identical(controller, _pagingController)) {
         setState(() {});
       }
     } on Object catch (error, stackTrace) {
       _log.error(
-        'load_older_search_year_failed',
+        'load_next_search_year_failed',
         cause: error,
         stackTrace: stackTrace,
       );
       // Keep the visible results; the next scroll can retry.
+    }
+  }
+
+  void _prefetchAmountPage() {
+    final controller = _amountPaging;
+    if (controller == null || !_amountListController.hasClients) return;
+    final position = _amountListController.position;
+    if (position.hasContentDimensions &&
+        position.extentAfter < position.viewportDimension) {
+      unawaited(_loadNextAmountPage(controller));
+    }
+  }
+
+  Future<void> _loadNextAmountPage(_AmountSearchPaging controller) async {
+    try {
+      final changed = await controller.loadNext();
+      if (changed && mounted && identical(controller, _amountPaging)) {
+        setState(() {});
+      }
+    } on Object catch (error, stackTrace) {
+      _log.error(
+        'load_next_search_amount_page_failed',
+        cause: error,
+        stackTrace: stackTrace,
+      );
     }
   }
 
@@ -385,6 +457,31 @@ class _SearchPageState extends ConsumerState<SearchPage> {
 
 const _log = AppLogger('Search');
 
+class _AmountSearchPaging {
+  _AmountSearchPaging(this._loadPage);
+
+  final Future<({List<BookkeepingRecord> records, bool hasMore})> Function(
+    BookkeepingRecord? after,
+  )
+  _loadPage;
+  final records = <BookkeepingRecord>[];
+  bool _hasMore = true;
+  bool _loading = false;
+
+  Future<bool> loadNext() async {
+    if (_loading || !_hasMore) return false;
+    _loading = true;
+    try {
+      final page = await _loadPage(records.lastOrNull);
+      records.addAll(page.records);
+      _hasMore = page.hasMore;
+      return page.records.isNotEmpty;
+    } finally {
+      _loading = false;
+    }
+  }
+}
+
 final _trailingActionStyle = IconButton.styleFrom(
   backgroundColor: Colors.transparent,
   alignment: Alignment.center,
@@ -401,6 +498,7 @@ class _FilterPanel extends StatelessWidget {
     required this.minController,
     required this.maxController,
     required this.amountError,
+    required this.order,
     required this.onTypeChanged,
     required this.onSelectStartDate,
     required this.onSelectEndDate,
@@ -408,6 +506,7 @@ class _FilterPanel extends StatelessWidget {
     required this.onClearEndDate,
     required this.onCategoriesChanged,
     required this.onTextChanged,
+    required this.onSort,
     required this.onReset,
   });
 
@@ -419,6 +518,7 @@ class _FilterPanel extends StatelessWidget {
   final TextEditingController minController;
   final TextEditingController maxController;
   final String? amountError;
+  final BookkeepingSearchOrder order;
   final ValueChanged<EntryType?> onTypeChanged;
   final VoidCallback onSelectStartDate;
   final VoidCallback onSelectEndDate;
@@ -426,6 +526,7 @@ class _FilterPanel extends StatelessWidget {
   final VoidCallback onClearEndDate;
   final ValueChanged<Set<String>> onCategoriesChanged;
   final VoidCallback onTextChanged;
+  final VoidCallback onSort;
   final VoidCallback onReset;
 
   @override
@@ -523,13 +624,38 @@ class _FilterPanel extends StatelessWidget {
                 ),
               ],
             ),
-            Align(
-              alignment: Alignment.centerRight,
-              child: TextButton.icon(
-                onPressed: onReset,
-                icon: const Icon(Icons.restart_alt_rounded),
-                label: const Text('重置所有条件'),
-              ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Flexible(
+                  child: TextButton.icon(
+                    onPressed: onSort,
+                    icon: const Icon(Icons.sort_rounded),
+                    label: Text(
+                      switch (order) {
+                        BookkeepingSearchOrder.timeDescending => '时间倒序',
+                        BookkeepingSearchOrder.timeAscending => '时间正序',
+                        BookkeepingSearchOrder.amountDescending => '金额倒序',
+                        BookkeepingSearchOrder.amountAscending => '金额正序',
+                      },
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: AppSpacing.controlGap),
+                Flexible(
+                  child: TextButton.icon(
+                    onPressed: onReset,
+                    icon: const Icon(Icons.restart_alt_rounded),
+                    label: const Text(
+                      '重置条件',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ],
         ),

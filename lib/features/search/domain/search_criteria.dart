@@ -1,3 +1,4 @@
+import 'package:anbookkeep/features/bookkeeping/domain/bookkeeping_search_order.dart';
 import 'package:anbookkeep/features/bookkeeping/domain/entry_type.dart';
 
 /// Immutable value used as the single source of truth for a search request.
@@ -10,6 +11,7 @@ final class SearchCriteria {
     Iterable<String> categoryIds = const [],
     this.minAmountMinor,
     this.maxAmountMinor,
+    this.order = BookkeepingSearchOrder.timeDescending,
   }) : categoryIds = List.unmodifiable(categoryIds.toSet().toList()..sort());
 
   final String keyword;
@@ -19,6 +21,7 @@ final class SearchCriteria {
   final List<String> categoryIds;
   final int? minAmountMinor;
   final int? maxAmountMinor;
+  final BookkeepingSearchOrder order;
 
   SearchCriteria copyWith({
     String? keyword,
@@ -33,6 +36,7 @@ final class SearchCriteria {
     int? maxAmountMinor,
     bool clearMinAmount = false,
     bool clearMaxAmount = false,
+    BookkeepingSearchOrder? order,
   }) {
     return SearchCriteria(
       keyword: keyword ?? this.keyword,
@@ -46,6 +50,7 @@ final class SearchCriteria {
       maxAmountMinor: clearMaxAmount
           ? null
           : maxAmountMinor ?? this.maxAmountMinor,
+      order: order ?? this.order,
     );
   }
 
@@ -59,6 +64,7 @@ final class SearchCriteria {
             other.endDate == endDate &&
             other.minAmountMinor == minAmountMinor &&
             other.maxAmountMinor == maxAmountMinor &&
+            other.order == order &&
             _sameItems(other.categoryIds, categoryIds);
   }
 
@@ -70,6 +76,7 @@ final class SearchCriteria {
     endDate,
     minAmountMinor,
     maxAmountMinor,
+    order,
     Object.hashAll(categoryIds),
   );
 

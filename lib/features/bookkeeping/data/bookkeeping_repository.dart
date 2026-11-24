@@ -4,6 +4,7 @@ import 'package:anbookkeep/core/datetime/app_date_policy.dart';
 import 'package:anbookkeep/core/datetime/local_minute.dart';
 import 'package:anbookkeep/core/errors/app_error_message.dart';
 import 'package:anbookkeep/core/money/money.dart';
+import 'package:anbookkeep/features/bookkeeping/domain/bookkeeping_search_order.dart';
 import 'package:anbookkeep/features/bookkeeping/domain/entry_type.dart';
 import 'package:anbookkeep/features/bookkeeping/domain/historical_note.dart';
 import 'package:drift/drift.dart';
@@ -295,9 +296,12 @@ final class BookkeepingRepository {
     Set<String> categoryIds = const {},
     int? minAmountMinor,
     int? maxAmountMinor,
+    BookkeepingSearchOrder order = BookkeepingSearchOrder.timeDescending,
+    BookkeepingRecord? afterAmountRecord,
     int? limit,
     int? offset,
   }) async {
+    assert(afterAmountRecord == null || (order.isAmount && offset == null));
     final query = _database.select(_database.bookkeepingEntries).join([
       innerJoin(
         _database.categories,
@@ -353,10 +357,37 @@ final class BookkeepingRepository {
         ),
       );
     }
+    final entries = _database.bookkeepingEntries;
+    final timeDirection = order == BookkeepingSearchOrder.timeAscending
+        ? OrderingMode.asc
+        : OrderingMode.desc;
+    final amountAscending = order == BookkeepingSearchOrder.amountAscending;
+    if (afterAmountRecord != null) {
+      final cursor = afterAmountRecord.entry;
+      final amountAfter = amountAscending
+          ? entries.amountMinor.isBiggerThanValue(cursor.amountMinor)
+          : entries.amountMinor.isSmallerThanValue(cursor.amountMinor);
+      final createdAfter =
+          entries.createdAt.isSmallerThanValue(cursor.createdAt) |
+          (entries.createdAt.equals(cursor.createdAt) &
+              entries.id.isSmallerThanValue(cursor.id));
+      final timeAfter =
+          entries.occurredAt.isSmallerThanValue(cursor.occurredAt) |
+          (entries.occurredAt.equals(cursor.occurredAt) & createdAfter);
+      query.where(
+        amountAfter |
+            (entries.amountMinor.equals(cursor.amountMinor) & timeAfter),
+      );
+    }
     query.orderBy([
-      OrderingTerm.desc(_database.bookkeepingEntries.occurredAt),
-      OrderingTerm.desc(_database.bookkeepingEntries.createdAt),
-      OrderingTerm.desc(_database.bookkeepingEntries.id),
+      if (order.isAmount)
+        OrderingTerm(
+          expression: entries.amountMinor,
+          mode: amountAscending ? OrderingMode.asc : OrderingMode.desc,
+        ),
+      OrderingTerm(expression: entries.occurredAt, mode: timeDirection),
+      OrderingTerm(expression: entries.createdAt, mode: timeDirection),
+      OrderingTerm(expression: entries.id, mode: timeDirection),
     ]);
     if (limit != null) query.limit(limit, offset: offset);
     final rows = await query.get();
@@ -369,8 +400,8 @@ final class BookkeepingRepository {
     ];
   }
 
-  Future<({String latestMonth, List<BookkeepingRecord> records})?>
-  searchLatestYear({
+  Future<({String anchorMonth, List<BookkeepingRecord> records})?>
+  searchBoundaryYear({
     String? keyword,
     EntryType? type,
     String? startDate,
@@ -378,6 +409,7 @@ final class BookkeepingRepository {
     Set<String> categoryIds = const {},
     int? minAmountMinor,
     int? maxAmountMinor,
+    bool oldestFirst = false,
   }) async {
     final clauses = <String>[];
     final variables = <Variable<Object>>[];
@@ -417,6 +449,8 @@ final class BookkeepingRepository {
       variables.add(Variable<int>(maxAmountMinor));
     }
     final where = clauses.isEmpty ? '' : 'WHERE ${clauses.join(' AND ')}';
+    final boundary = oldestFirst ? 'MIN' : 'MAX';
+    final direction = oldestFirst ? 'ASC' : 'DESC';
     final rows = await _database
         .customSelect(
           '''
@@ -440,17 +474,17 @@ WITH filtered AS (
   FROM transactions AS t
   INNER JOIN categories AS c ON c.id = t.category_id
   $where
-), latest AS (
-  SELECT substr(MAX(occurred_at), 1, 7) AS latest_month,
-         substr(MAX(occurred_at), 1, 4) AS latest_year
+), anchor AS (
+  SELECT substr($boundary(occurred_at), 1, 7) AS anchor_month,
+         substr($boundary(occurred_at), 1, 4) AS anchor_year
   FROM filtered
 )
-SELECT filtered.*, latest.latest_month
-FROM filtered CROSS JOIN latest
-WHERE substr(filtered.occurred_at, 1, 4) = latest.latest_year
-ORDER BY filtered.occurred_at DESC,
-         filtered.entry_created_at DESC,
-         filtered.entry_id DESC
+SELECT filtered.*, anchor.anchor_month
+FROM filtered CROSS JOIN anchor
+WHERE substr(filtered.occurred_at, 1, 4) = anchor.anchor_year
+ORDER BY filtered.occurred_at $direction,
+         filtered.entry_created_at $direction,
+         filtered.entry_id $direction
 ''',
           variables: variables,
           readsFrom: {_database.bookkeepingEntries, _database.categories},
@@ -458,12 +492,12 @@ ORDER BY filtered.occurred_at DESC,
         .get();
     if (rows.isEmpty) return null;
     return (
-      latestMonth: rows.first.read<String>('latest_month'),
-      records: [for (final row in rows) _recordFromLatestYearRow(row)],
+      anchorMonth: rows.first.read<String>('anchor_month'),
+      records: [for (final row in rows) _recordFromBoundaryYearRow(row)],
     );
   }
 
-  static BookkeepingRecord _recordFromLatestYearRow(QueryRow row) {
+  static BookkeepingRecord _recordFromBoundaryYearRow(QueryRow row) {
     return BookkeepingRecord(
       entry: TransactionRow(
         id: row.read<String>('entry_id'),

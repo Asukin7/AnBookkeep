@@ -44,6 +44,7 @@ class BookkeepingRecordList extends StatefulWidget {
     this.onReachTop,
     this.onReachBottom,
     this.centerMonth,
+    this.oldestFirst = false,
     this.padding = AppSpacing.pagePadding,
     super.key,
   });
@@ -60,6 +61,10 @@ class BookkeepingRecordList extends StatefulWidget {
   final VoidCallback? onReachTop;
   final VoidCallback? onReachBottom;
   final String? centerMonth;
+
+  /// Display the supplied months in chronological order in a single list.
+  /// Each month's records must already be sorted from oldest to newest.
+  final bool oldestFirst;
   final EdgeInsetsGeometry padding;
 
   @override
@@ -108,19 +113,21 @@ class _BookkeepingRecordListState extends State<BookkeepingRecordList> {
         widget.centerMonth ?? widget.pages.firstOrNull?.month ?? '';
     final newerEntries = <_LedgerListEntry>[];
     final centerAndOlderEntries = <_LedgerListEntry>[];
-    final newerPages =
-        widget.pages
-            .where((page) => page.month.compareTo(centerMonth) > 0)
-            .toList()
-          ..sort((left, right) => left.month.compareTo(right.month));
+    final newerPages = widget.oldestFirst
+        ? const <LedgerMonthPage>[]
+        : (widget.pages
+              .where((page) => page.month.compareTo(centerMonth) > 0)
+              .toList()
+            ..sort((left, right) => left.month.compareTo(right.month)));
     for (final page in newerPages) {
       for (final day in page.days.reversed) {
         newerEntries.add(_LedgerListEntry.day(page.month, day));
       }
     }
-    for (final page in widget.pages.where(
-      (page) => page.month.compareTo(centerMonth) <= 0,
-    )) {
+    final mainPages = widget.oldestFirst
+        ? widget.pages.reversed
+        : widget.pages.where((page) => page.month.compareTo(centerMonth) <= 0);
+    for (final page in mainPages) {
       for (final day in page.days) {
         centerAndOlderEntries.add(_LedgerListEntry.day(page.month, day));
       }
@@ -419,6 +426,7 @@ class BookkeepingRecordTile extends StatelessWidget {
     required this.incomeColor,
     required this.expenseColor,
     this.onTap,
+    this.showDate = false,
     super.key,
   });
 
@@ -429,6 +437,7 @@ class BookkeepingRecordTile extends StatelessWidget {
   final bool useGrouping;
   final Color incomeColor;
   final Color expenseColor;
+  final bool showDate;
 
   @override
   Widget build(BuildContext context) {
@@ -465,9 +474,12 @@ class BookkeepingRecordTile extends StatelessWidget {
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
         ),
-        subtitle: timePrecision == TimePrecision.minute
-            ? Text(record.occurredAt.time)
-            : null,
+        subtitle: switch ((showDate, timePrecision)) {
+          (true, TimePrecision.minute) => Text(record.occurredAt.value),
+          (true, TimePrecision.date) => Text(record.occurredAt.date),
+          (false, TimePrecision.minute) => Text(record.occurredAt.time),
+          (false, TimePrecision.date) => null,
+        },
         trailing: Text(
           MoneyFormatter.format(
             record.amount,

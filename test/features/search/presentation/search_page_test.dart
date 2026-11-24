@@ -7,6 +7,7 @@ import 'package:anbookkeep/core/widgets/app_segmented_control.dart';
 import 'package:anbookkeep/features/bookkeeping/data/bookkeeping_repository.dart';
 import 'package:anbookkeep/features/bookkeeping/application/ledger_change_notifier.dart';
 import 'package:anbookkeep/features/bookkeeping/domain/entry_type.dart';
+import 'package:anbookkeep/features/bookkeeping/presentation/bookkeeping_record_list.dart';
 import 'package:anbookkeep/features/search/presentation/search_page.dart';
 import 'package:decimal/decimal.dart';
 import 'package:drift/native.dart';
@@ -341,6 +342,89 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('晚餐'), findsOneWidget);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(milliseconds: 1));
+  });
+
+  testWidgets('cycles search order, preserves filters, and resets the order', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(800, 960));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final repository = BookkeepingRepository(database);
+    for (final (date, amount, note) in const [
+      ('2024-10-05 12:00', 8000, '账单早年'),
+      ('2026-08-29 09:00', 1500, '账单上午'),
+      ('2026-08-29 14:00', 500, '账单下午'),
+    ]) {
+      await repository.create(
+        type: EntryType.expense,
+        categoryId: 'expense-food',
+        amount: Money.fromMinorUnits(amount),
+        occurredAt: LocalMinute.parse(date),
+        note: note,
+      );
+    }
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [appDatabaseProvider.overrideWithValue(database)],
+        child: const MaterialApp(home: SearchPage()),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final keyword = find.byType(TextField).first;
+    await tester.enterText(keyword, '账单');
+    await tester.tap(find.byTooltip('展开筛选'));
+    await tester.pumpAndSettle();
+
+    List<String> resultNames() => tester
+        .widgetList<BookkeepingRecordTile>(find.byType(BookkeepingRecordTile))
+        .map((tile) => tile.record.displayName)
+        .toList();
+
+    final reset = find.widgetWithText(TextButton, '重置条件');
+    final initialSort = find.widgetWithText(TextButton, '时间倒序');
+    expect(tester.getCenter(initialSort).dy, tester.getCenter(reset).dy);
+    expect(
+      tester.getTopLeft(initialSort).dx,
+      closeTo(tester.getTopLeft(startDateButton).dx, 0.1),
+    );
+    expect(
+      tester.getTopRight(reset).dx,
+      closeTo(tester.getTopRight(endDateButton).dx, 0.1),
+    );
+    expect(resultNames(), ['账单下午', '账单上午', '账单早年']);
+    expect(find.byType(BookkeepingDayGroup), findsNWidgets(2));
+
+    Future<void> cycle(String current, String next) async {
+      await tester.tap(find.widgetWithText(TextButton, current));
+      await tester.pumpAndSettle();
+      expect(find.widgetWithText(TextButton, next), findsOneWidget);
+      expect(tester.widget<TextField>(keyword).controller?.text, '账单');
+    }
+
+    await cycle('时间倒序', '时间正序');
+    expect(resultNames(), ['账单早年', '账单上午', '账单下午']);
+    expect(find.byType(BookkeepingDayGroup), findsNWidgets(2));
+
+    await cycle('时间正序', '金额倒序');
+    expect(resultNames(), ['账单早年', '账单上午', '账单下午']);
+    expect(find.byType(BookkeepingDayGroup), findsNothing);
+    expect(find.text('2024-10-05 12:00'), findsOneWidget);
+
+    await cycle('金额倒序', '金额正序');
+    expect(resultNames(), ['账单下午', '账单上午', '账单早年']);
+    await cycle('金额正序', '时间倒序');
+    expect(find.byType(BookkeepingDayGroup), findsNWidgets(2));
+
+    await cycle('时间倒序', '时间正序');
+    await tester.tap(reset);
+    await tester.pumpAndSettle();
+    expect(initialSort, findsOneWidget);
+    expect(tester.widget<TextField>(keyword).controller?.text, isEmpty);
+    expect(find.text('午餐'), findsOneWidget);
 
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump(const Duration(milliseconds: 1));

@@ -217,9 +217,9 @@ void main() {
         );
       }
 
-      final result = await repository.searchLatestYear(keyword: '账单');
+      final result = await repository.searchBoundaryYear(keyword: '账单');
 
-      expect(result?.latestMonth, '2026-02');
+      expect(result?.anchorMonth, '2026-02');
       expect(result?.records.map((record) => record.entry.note), ['目标账单']);
     },
   );
