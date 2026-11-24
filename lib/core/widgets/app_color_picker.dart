@@ -7,6 +7,9 @@ import 'package:anbookkeep/core/widgets/app_dialog.dart';
 import 'package:flutter/material.dart';
 
 const _colorSwatchSelectionInset = 2.0;
+const _colorPaletteDiameter = 196.0;
+const _paletteIndicatorRadius = 8.0;
+const _paletteIndicatorStrokeWidth = 3.0;
 
 String appColorHex(Color color) =>
     '#${color.toARGB32().toRadixString(16).substring(2).toUpperCase()}';
@@ -44,7 +47,6 @@ class AppColorPickerSheet extends StatefulWidget {
 
 class _AppColorPickerSheetState extends State<AppColorPickerSheet> {
   late Color _selected = widget.current;
-  late double _hue = HSVColor.fromColor(widget.current).hue;
 
   late final List<Color> colors = _randomColors(widget.current);
 
@@ -64,10 +66,7 @@ class _AppColorPickerSheetState extends State<AppColorPickerSheet> {
   }
 
   void _select(Color color) {
-    setState(() {
-      _selected = color;
-      _hue = HSVColor.fromColor(color).hue;
-    });
+    setState(() => _selected = color);
   }
 
   Future<void> _editHex() async {
@@ -78,16 +77,12 @@ class _AppColorPickerSheetState extends State<AppColorPickerSheet> {
     if (value != null && mounted) _select(value);
   }
 
-  void _pickFromPalette(Offset point, Size size) {
-    final center = size.center(Offset.zero);
-    final delta = point - center;
-    final radius = size.shortestSide / 2;
+  void _pickFromPalette(Offset point, _ColorPaletteGeometry geometry) {
+    final delta = point - geometry.center;
     final distance = delta.distance;
-    if (distance > radius) return;
-    final angle = math.atan2(delta.dy, delta.dx);
-    final hue = (angle * 180 / math.pi + 360) % 360;
-    final saturation = (distance / radius).clamp(0.02, 1.0).toDouble();
-    _select(HSVColor.fromAHSV(1, hue, saturation, 1).toColor());
+    if (distance > geometry.radius) return;
+    final hue = (delta.direction * 180 / math.pi) % 360;
+    _select(_paletteColor(hue, geometry.saturationAt(distance)));
   }
 
   @override
@@ -181,20 +176,21 @@ class _AppColorPickerSheetState extends State<AppColorPickerSheet> {
             const SizedBox(height: AppSpacing.md),
             Text('自定义颜色', style: Theme.of(context).textTheme.titleSmall),
             const SizedBox(height: AppSpacing.controlGap),
-            GestureDetector(
-              onTapDown: (details) => _pickFromPalette(
-                details.localPosition,
-                const Size.square(196),
-              ),
-              onPanUpdate: (details) => _pickFromPalette(
-                details.localPosition,
-                const Size.square(196),
-              ),
-              child: SizedBox.square(
-                dimension: 196,
-                child: CustomPaint(
-                  painter: _ColorPalettePainter(selected: _selected, hue: _hue),
-                ),
+            SizedBox.square(
+              dimension: _colorPaletteDiameter,
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final geometry = _ColorPaletteGeometry(constraints.biggest);
+                  return GestureDetector(
+                    onTapDown: (details) =>
+                        _pickFromPalette(details.localPosition, geometry),
+                    onPanUpdate: (details) =>
+                        _pickFromPalette(details.localPosition, geometry),
+                    child: CustomPaint(
+                      painter: _ColorPalettePainter(selected: _selected),
+                    ),
+                  );
+                },
               ),
             ),
           ],
@@ -260,20 +256,45 @@ class _HexColorDialogState extends State<_HexColorDialog> {
   }
 }
 
+Color _paletteColor(double hue, double saturation) =>
+    HSVColor.fromAHSV(1, hue, saturation, 1).toColor();
+
+class _ColorPaletteGeometry {
+  const _ColorPaletteGeometry(this.size);
+
+  final Size size;
+
+  Offset get center => size.center(Offset.zero);
+  double get radius => size.shortestSide / 2;
+
+  // Leave room for the whole indicator stroke at full saturation.
+  double get selectionRadius => math.max(
+    0.0,
+    radius - _paletteIndicatorRadius - _paletteIndicatorStrokeWidth / 2,
+  );
+
+  double saturationAt(double distance) =>
+      selectionRadius == 0 ? 0.0 : math.min(distance / selectionRadius, 1.0);
+}
+
 class _ColorPalettePainter extends CustomPainter {
-  const _ColorPalettePainter({required this.selected, required this.hue});
+  const _ColorPalettePainter({required this.selected});
 
   final Color selected;
-  final double hue;
 
   @override
   void paint(Canvas canvas, Size size) {
-    final center = size.center(Offset.zero);
-    final radius = size.shortestSide / 2;
+    final geometry = _ColorPaletteGeometry(size);
+    final center = geometry.center;
+    final radius = geometry.radius;
+    final selectionRadius = geometry.selectionRadius;
+    if (selectionRadius == 0) {
+      canvas.drawCircle(center, radius, Paint()..color = Colors.white);
+      return;
+    }
     final rect = Rect.fromCircle(center: center, radius: radius);
     final hueColors = [
-      for (var i = 0; i <= 360; i += 30)
-        HSVColor.fromAHSV(1, i.toDouble(), 1, 1).toColor(),
+      for (var i = 0; i <= 360; i += 30) _paletteColor(i.toDouble(), 1),
     ];
     canvas.drawCircle(
       center,
@@ -282,28 +303,35 @@ class _ColorPalettePainter extends CustomPainter {
     );
     final lightnessPaint = Paint()
       ..shader = RadialGradient(
+        radius: selectionRadius / rect.shortestSide,
         colors: [Colors.white, Colors.white.withAlpha(0)],
-        stops: const [0, .86],
       ).createShader(rect);
     canvas.drawCircle(center, radius, lightnessPaint);
     final selection = HSVColor.fromColor(selected);
-    final indicatorRadius = (radius - 10) * selection.saturation;
-    final angle = hue * math.pi / 180;
+    final indicatorRadius = selectionRadius * selection.saturation;
+    final angle = selection.hue * math.pi / 180;
     final indicator =
         center + Offset(math.cos(angle), math.sin(angle)) * indicatorRadius;
+    final indicatorBackground = _paletteColor(
+      selection.hue,
+      selection.saturation,
+    );
+    final indicatorBrightness = ThemeData.estimateBrightnessForColor(
+      indicatorBackground,
+    );
     canvas.drawCircle(
       indicator,
-      8,
+      _paletteIndicatorRadius,
       Paint()
-        ..color = selection.toColor().computeLuminance() > .55
+        ..color = indicatorBrightness == Brightness.light
             ? Colors.black
             : Colors.white
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 3,
+        ..strokeWidth = _paletteIndicatorStrokeWidth,
     );
   }
 
   @override
   bool shouldRepaint(_ColorPalettePainter oldDelegate) =>
-      oldDelegate.selected != selected || oldDelegate.hue != hue;
+      oldDelegate.selected != selected;
 }
