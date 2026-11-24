@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:anbookkeep/app/theme/app_spacing.dart';
 import 'package:anbookkeep/app/theme/app_tokens.dart';
@@ -52,6 +53,7 @@ class _BookkeepingPageState extends ConsumerState<BookkeepingPage> {
   LocalMinute _occurredAt = LocalMinute.now();
   bool _isSaving = false;
   bool _isLoading = false;
+  bool _isPickingOccurredAt = false;
   String? _loadError;
 
   @override
@@ -256,10 +258,11 @@ class _BookkeepingPageState extends ConsumerState<BookkeepingPage> {
     final hasOperator = RegExp(r'[+\-×÷]').hasMatch(state.expression);
     final saveMode = !hasOperator || state.isCommitted;
     return CalculatorKeyboard(
-      timeLabel: precision == TimePrecision.date
-          ? _occurredAt.date
-          : '${_occurredAt.date}\n${_occurredAt.time}',
-      onTimeTap: _selectDateTime,
+      dateLabel: _occurredAt.date,
+      onDateTap: _selectDate,
+      time: precision == TimePrecision.minute
+          ? (label: _occurredAt.time, onTap: _selectTime)
+          : null,
       onPressed: _pressCalculatorKey,
       saveMode: saveMode,
     );
@@ -296,12 +299,11 @@ class _BookkeepingPageState extends ConsumerState<BookkeepingPage> {
     }
   }
 
-  Future<void> _selectDateTime() async {
-    final current = _occurredAt.toDateTime();
+  Future<void> _selectDate() => _pickOccurredAt((current) async {
     final dataRange = await ref
         .read(bookkeepingRepositoryProvider)
         .dataYearRange();
-    if (!mounted) return;
+    if (!mounted) return null;
     final bounds = AppDatePolicy.pickerBounds(
       dataMinimumYear: dataRange?.minYear,
       dataMaximumYear: dataRange?.maxYear,
@@ -313,31 +315,47 @@ class _BookkeepingPageState extends ConsumerState<BookkeepingPage> {
       firstDate: bounds.firstDate,
       lastDate: bounds.lastDate,
     );
-    if (date == null || !mounted) return;
-    if (ref.read(appSettingsProvider).timePrecision == TimePrecision.date) {
-      setState(() {
-        _occurredAt = LocalMinute.fromDateTime(
-          DateTime(
-            date.year,
-            date.month,
-            date.day,
-            current.hour,
-            current.minute,
-          ),
-        );
-      });
-      return;
-    }
+    if (date == null) return null;
+    return DateTime(
+      date.year,
+      date.month,
+      date.day,
+      current.hour,
+      current.minute,
+    );
+  });
+
+  Future<void> _selectTime() => _pickOccurredAt((current) async {
     final time = await showTimePicker(
       context: context,
       initialTime: TimeOfDay.fromDateTime(current),
     );
-    if (time == null || !mounted) return;
-    setState(() {
-      _occurredAt = LocalMinute.fromDateTime(
-        DateTime(date.year, date.month, date.day, time.hour, time.minute),
-      );
-    });
+    if (time == null) return null;
+    return DateTime(
+      current.year,
+      current.month,
+      current.day,
+      time.hour,
+      time.minute,
+    );
+  });
+
+  Future<void> _pickOccurredAt(
+    Future<DateTime?> Function(DateTime current) pick,
+  ) async {
+    if (_isPickingOccurredAt) return;
+    _isPickingOccurredAt = true;
+    try {
+      final value = await pick(_occurredAt.toDateTime());
+      if (value == null || !mounted) return;
+      setState(() => _occurredAt = LocalMinute.fromDateTime(value));
+    } on Object catch (error) {
+      if (mounted) {
+        _showMessage(appErrorMessage(error, fallback: '无法选择记账时间，请重试'));
+      }
+    } finally {
+      _isPickingOccurredAt = false;
+    }
   }
 
   Future<void> _selectHistoricalNote() async {
@@ -557,28 +575,37 @@ class _CalculatorDisplay extends StatelessWidget {
 class CalculatorKeyboard extends StatelessWidget {
   const CalculatorKeyboard({
     required this.onPressed,
-    required this.timeLabel,
-    required this.onTimeTap,
+    required this.dateLabel,
+    required this.onDateTap,
     required this.saveMode,
+    this.time,
     super.key,
   });
 
   final ValueChanged<String> onPressed;
-  final String timeLabel;
-  final VoidCallback onTimeTap;
+  final String dateLabel;
+  final VoidCallback onDateTap;
+  final ({String label, VoidCallback onTap})? time;
   final bool saveMode;
 
   @override
   Widget build(BuildContext context) {
+    final clock = time;
     return Column(
       children: [
         _CalculatorRow(
-          leading: _CalculatorButton(
-            label: timeLabel,
-            primary: false,
-            compactSecondLine: true,
-            onPressed: onTimeTap,
-          ),
+          leading: clock == null
+              ? _CalculatorButton(
+                  label: dateLabel,
+                  semanticsLabel: '选择记账日期 $dateLabel',
+                  primary: false,
+                  onPressed: onDateTap,
+                )
+              : _CalculatorDateTimeKey(
+                  dateLabel: dateLabel,
+                  onDateTap: onDateTap,
+                  time: clock,
+                ),
           leadingFlex: 2,
           keys: const [('←', 1), ('÷', 1)],
           onPressed: onPressed,
@@ -601,6 +628,117 @@ class CalculatorKeyboard extends StatelessWidget {
           onPressed: onPressed,
         ),
       ],
+    );
+  }
+}
+
+class _CalculatorDateTimeKey extends StatelessWidget {
+  const _CalculatorDateTimeKey({
+    required this.dateLabel,
+    required this.onDateTap,
+    required this.time,
+  });
+
+  final String dateLabel;
+  final VoidCallback onDateTap;
+  final ({String label, VoidCallback onTap}) time;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final textScaler = MediaQuery.textScalerOf(context);
+    final style = DefaultTextStyle.of(context).style
+        .merge(AppTypography.calculator(theme.textTheme))
+        .copyWith(
+          inherit: false,
+          color: colors.onSurface,
+          fontSize: theme.textTheme.bodySmall?.fontSize,
+          height: 1.15,
+        );
+    final label = '$dateLabel ${time.label}';
+    const padding = EdgeInsets.symmetric(horizontal: AppSpacing.xs);
+
+    Widget target(String label, VoidCallback onTap) => Semantics(
+      label: label,
+      button: true,
+      child: InkWell(
+        onTap: onTap,
+        overlayColor: WidgetStatePropertyAll(
+          colors.primary.withAlpha(AppAlpha.pressed),
+        ),
+      ),
+    );
+
+    return Material(
+      key: const ValueKey('calculator-date-time-key'),
+      color: colors.surfaceContainerLow,
+      borderRadius: BorderRadius.circular(AppRadii.control),
+      clipBehavior: Clip.antiAlias,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final painter = TextPainter(
+            text: TextSpan(text: label, style: style),
+            textDirection: TextDirection.ltr,
+            textScaler: textScaler,
+          )..layout();
+          final space = painter
+              .getBoxesForSelection(
+                TextSelection(
+                  baseOffset: dateLabel.length,
+                  extentOffset: dateLabel.length + 1,
+                ),
+              )
+              .single;
+          final available = constraints.deflate(padding);
+          final scale = math.min(
+            1.0,
+            math.min(
+              available.maxWidth / painter.width,
+              available.maxHeight / painter.height,
+            ),
+          );
+          // Split the hit targets at the space in the centered label.
+          final split =
+              (constraints.maxWidth - painter.width * scale) / 2 +
+              (space.left + space.right) * scale / 2;
+          painter.dispose();
+
+          return Stack(
+            fit: StackFit.expand,
+            children: [
+              Row(
+                textDirection: TextDirection.ltr,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  SizedBox(
+                    width: split,
+                    child: target('选择记账日期 $dateLabel', onDateTap),
+                  ),
+                  Expanded(child: target('选择记账时分 ${time.label}', time.onTap)),
+                ],
+              ),
+              IgnorePointer(
+                child: ExcludeSemantics(
+                  child: Padding(
+                    padding: padding,
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        label,
+                        style: style,
+                        textScaler: textScaler,
+                        textDirection: TextDirection.ltr,
+                        maxLines: 1,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
     );
   }
 }
@@ -659,13 +797,13 @@ class _CalculatorButton extends StatefulWidget {
     required this.primary,
     required this.onPressed,
     this.repeatable = false,
-    this.compactSecondLine = false,
+    this.semanticsLabel,
   });
 
   final String label;
   final bool primary;
   final bool repeatable;
-  final bool compactSecondLine;
+  final String? semanticsLabel;
   final VoidCallback onPressed;
 
   @override
@@ -711,42 +849,47 @@ class _CalculatorButtonState extends State<_CalculatorButton> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final calculatorStyle = AppTypography.calculator(theme.textTheme);
     final button = widget.primary
         ? FilledButton(
             onPressed: widget.onPressed,
             style: FilledButton.styleFrom(
-              backgroundColor: Theme.of(context).colorScheme.primary,
-              foregroundColor: Theme.of(context).colorScheme.onPrimary,
+              backgroundColor: colors.primary,
+              foregroundColor: colors.onPrimary,
               minimumSize: const Size.fromHeight(AppSizes.calculatorButton),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(AppRadii.control),
               ),
               side: BorderSide.none,
               padding: EdgeInsets.zero,
-              textStyle: AppTypography.calculator(Theme.of(context).textTheme),
+              textStyle: calculatorStyle,
             ),
             child: Text(widget.label),
           )
         : TextButton(
             onPressed: widget.repeatable ? _handlePressed : widget.onPressed,
             style: TextButton.styleFrom(
-              foregroundColor: Theme.of(context).colorScheme.onSurface,
-              backgroundColor: Theme.of(context)
-                  .colorScheme
-                  .surfaceContainerLow,
-              overlayColor: Theme.of(context).colorScheme.primary
-                  .withAlpha(AppAlpha.pressed),
+              foregroundColor: colors.onSurface,
+              backgroundColor: colors.surfaceContainerLow,
+              overlayColor: colors.primary.withAlpha(AppAlpha.pressed),
               side: BorderSide.none,
               minimumSize: const Size.fromHeight(AppSizes.calculatorButton),
               padding: EdgeInsets.zero,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(AppRadii.control),
               ),
-              textStyle: AppTypography.calculator(Theme.of(context).textTheme),
+              textStyle: calculatorStyle,
             ),
-            child: widget.compactSecondLine
-                ? _TimeButtonLabel(widget.label)
-                : Text(widget.label),
+            child: Text(
+              widget.label,
+              semanticsLabel: widget.semanticsLabel,
+              textAlign: TextAlign.center,
+              style: calculatorStyle.copyWith(color: colors.onSurface),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
           );
     if (!widget.repeatable) return button;
     return Listener(
@@ -754,36 +897,6 @@ class _CalculatorButtonState extends State<_CalculatorButton> {
       onPointerUp: (_) => _stopRepeating(),
       onPointerCancel: (_) => _stopRepeating(),
       child: button,
-    );
-  }
-}
-
-class _TimeButtonLabel extends StatelessWidget {
-  const _TimeButtonLabel(this.label);
-
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    final parts = label.split('\n');
-    final theme = Theme.of(context);
-    final color = theme.colorScheme.onSurface;
-    final dateStyle = AppTypography.calculator(theme.textTheme)
-        .copyWith(color: color);
-    final minuteStyle = dateStyle.copyWith(
-      fontSize: theme.textTheme.bodySmall?.fontSize,
-      height: 1.15,
-    );
-    final textStyle = parts.length > 1 ? minuteStyle : dateStyle;
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      mainAxisAlignment: MainAxisAlignment.center,
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        Text(parts.first, textAlign: TextAlign.center, style: textStyle),
-        if (parts.length > 1)
-          Text(parts[1], textAlign: TextAlign.center, style: textStyle),
-      ],
     );
   }
 }

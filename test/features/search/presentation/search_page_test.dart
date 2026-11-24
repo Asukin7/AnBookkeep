@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:anbookkeep/app/theme/app_spacing.dart';
+import 'package:anbookkeep/app/theme/app_tokens.dart';
 import 'package:anbookkeep/core/database/app_database.dart';
 import 'package:anbookkeep/core/database/database_provider.dart';
 import 'package:anbookkeep/core/datetime/local_minute.dart';
@@ -10,6 +13,8 @@ import 'package:anbookkeep/features/bookkeeping/domain/entry_type.dart';
 import 'package:anbookkeep/features/bookkeeping/presentation/bookkeeping_record_list.dart';
 import 'package:anbookkeep/features/search/presentation/search_page.dart';
 import 'package:decimal/decimal.dart';
+import 'package:drift/drift.dart'
+    show ApplyInterceptor, QueryExecutor, QueryInterceptor;
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -17,9 +22,11 @@ import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   late AppDatabase database;
+  late _SearchQueryGate queryGate;
 
   setUp(() async {
-    database = AppDatabase(NativeDatabase.memory());
+    queryGate = _SearchQueryGate();
+    database = AppDatabase(NativeDatabase.memory().interceptWith(queryGate));
     final repository = BookkeepingRepository(database);
     await repository.create(
       type: EntryType.expense,
@@ -107,14 +114,35 @@ void main() {
       tester.getCenter(expandButton).dx,
       greaterThan(tester.getCenter(keywordField).dx),
     );
+    double resultsTop() =>
+        tester.getTopLeft(find.byType(BookkeepingRecordList)).dy;
+
     expectCenteredIcon(expandButton, Icons.expand_more_rounded);
+    final collapsedResultsTop = resultsTop();
     await tester.tap(expandButton);
+    await tester.pump();
+    await tester.pump(AppMotion.standard ~/ 2);
+    final openingResultsTop = resultsTop();
     await tester.pumpAndSettle();
+    final expandedResultsTop = resultsTop();
+    expect(
+      openingResultsTop,
+      inExclusiveRange(collapsedResultsTop, expandedResultsTop),
+    );
     expect(startDateButton, findsOneWidget);
     expectCenteredIcon(collapseButton, Icons.expand_less_rounded);
     await tester.tap(collapseButton);
+    await tester.pump();
+    await tester.pump(AppMotion.standard ~/ 2);
+    expect(
+      resultsTop(),
+      inExclusiveRange(collapsedResultsTop, expandedResultsTop),
+    );
     await tester.pumpAndSettle();
+    expect(resultsTop(), closeTo(collapsedResultsTop, .1));
     expect(startDateButton, findsNothing);
+    expect(find.text('午餐'), findsOneWidget);
+    expect(find.text('纸巾'), findsNothing);
 
     await tester.enterText(keywordField, '');
     await tester.tap(expandButton);
@@ -161,8 +189,14 @@ void main() {
       surfaceColor,
     );
 
+    final collapsedDateTop = tester.getTopLeft(startDateButton).dy;
     await tester.tap(find.text('支出'));
+    await tester.pump();
+    await tester.pump(AppMotion.standard ~/ 2);
+    final movingDateTop = tester.getTopLeft(startDateButton).dy;
     await tester.pumpAndSettle();
+    final expandedDateTop = tester.getTopLeft(startDateButton).dy;
+    expect(movingDateTop, inExclusiveRange(collapsedDateTop, expandedDateTop));
     expect(categoryButton, findsOneWidget);
     expect(find.text('全部分类'), findsOneWidget);
     expect(find.byTooltip('清除分类'), findsNothing);
@@ -204,6 +238,11 @@ void main() {
     );
     expect(find.text('暂无符合条件的账单'), findsOneWidget);
 
+    await tester.tap(find.text('支出'));
+    await tester.pumpAndSettle();
+    expect(find.text('已选1项分类'), findsOneWidget);
+    expect(find.text('暂无符合条件的账单'), findsOneWidget);
+
     final clearCategory = find.byTooltip('清除分类');
     final clearBounds = tester.getRect(clearCategory);
     expect(tester.getRect(categoryButton).intersect(clearBounds), clearBounds);
@@ -233,6 +272,20 @@ void main() {
     expect(find.byTooltip('清除最大金额'), findsNothing);
     expect(find.text('午餐'), findsOneWidget);
     expect(find.text('纸巾'), findsOneWidget);
+
+    await tester.tap(find.text('全部'));
+    await tester.pump();
+    await tester.pump(AppMotion.standard ~/ 2);
+    expect(
+      tester.getTopLeft(startDateButton).dy,
+      inExclusiveRange(collapsedDateTop, expandedDateTop),
+    );
+    await tester.pumpAndSettle();
+    expect(categoryButton, findsNothing);
+    expect(
+      tester.getTopLeft(startDateButton).dy,
+      closeTo(collapsedDateTop, 0.1),
+    );
 
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();
@@ -405,7 +458,19 @@ void main() {
       expect(tester.widget<TextField>(keyword).controller?.text, '账单');
     }
 
-    await cycle('时间倒序', '时间正序');
+    final pending = Completer<void>();
+    queryGate.pending = pending.future;
+    try {
+      await tester.tap(initialSort);
+      await tester.pump();
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+      expect(resultNames(), ['账单下午', '账单上午', '账单早年']);
+    } finally {
+      queryGate.pending = null;
+      pending.complete();
+    }
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(TextButton, '时间正序'), findsOneWidget);
     expect(resultNames(), ['账单早年', '账单上午', '账单下午']);
     expect(find.byType(BookkeepingDayGroup), findsNWidgets(2));
 
@@ -429,4 +494,20 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump(const Duration(milliseconds: 1));
   });
+}
+
+final class _SearchQueryGate extends QueryInterceptor {
+  Future<void>? pending;
+
+  @override
+  Future<List<Map<String, Object?>>> runSelect(
+    QueryExecutor executor,
+    String statement,
+    List<Object?> args,
+  ) async {
+    if (statement.contains('WITH filtered AS') && pending != null) {
+      await pending;
+    }
+    return executor.runSelect(statement, args);
+  }
 }

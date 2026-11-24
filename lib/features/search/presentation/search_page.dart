@@ -47,8 +47,10 @@ class _SearchPageState extends ConsumerState<SearchPage> {
   int _searchGeneration = 0;
   LedgerYearPagingController? _pagingController;
   _AmountSearchPaging? _amountPaging;
+  BookkeepingSearchOrder _displayedOrder =
+      BookkeepingSearchOrder.timeDescending;
   final _listController = BookkeepingRecordListController();
-  final _amountListController = ScrollController();
+  final _amountListController = ScrollController(keepScrollOffset: false);
   bool _initialLoading = true;
   String? _loadError;
   bool _expanded = false;
@@ -168,8 +170,9 @@ class _SearchPageState extends ConsumerState<SearchPage> {
               ),
             ),
           ),
-          if (_expanded)
-            _FilterPanel(
+          _SearchFilterReveal(
+            visible: _expanded,
+            child: _FilterPanel(
               type: _criteria.type,
               startDate: _criteria.startDate,
               endDate: _criteria.endDate,
@@ -203,6 +206,7 @@ class _SearchPageState extends ConsumerState<SearchPage> {
               onSort: _cycleSort,
               onReset: _reset,
             ),
+          ),
           Expanded(child: _buildResults(settings)),
         ],
       ),
@@ -219,6 +223,7 @@ class _SearchPageState extends ConsumerState<SearchPage> {
     final amounts = _amountPaging?.records;
     if (amounts != null && amounts.isNotEmpty) {
       return ListView.separated(
+        key: ValueKey(_displayedOrder),
         controller: _amountListController,
         padding: AppSpacing.pagePadding,
         itemCount: amounts.length,
@@ -248,10 +253,11 @@ class _SearchPageState extends ConsumerState<SearchPage> {
       return const Center(child: Text('暂无符合条件的账单'));
     }
     return BookkeepingRecordList(
+      key: ValueKey(_displayedOrder),
       controller: _listController,
       pages: pages,
       centerMonth: pages.first.month,
-      oldestFirst: _criteria.order == BookkeepingSearchOrder.timeAscending,
+      oldestFirst: _displayedOrder == BookkeepingSearchOrder.timeAscending,
       onReachBottom: _loadNextYear,
       onDelete: _delete,
       onTap: _edit,
@@ -301,7 +307,7 @@ class _SearchPageState extends ConsumerState<SearchPage> {
 
   void _cycleSort() {
     setState(() => _criteria = _criteria.copyWith(order: _criteria.order.next));
-    unawaited(_startSearch(resetResults: true));
+    unawaited(_startSearch());
   }
 
   void _reset() {
@@ -312,7 +318,7 @@ class _SearchPageState extends ConsumerState<SearchPage> {
       _amountError = null;
       _criteria = SearchCriteria();
     });
-    unawaited(_startSearch(resetResults: true));
+    unawaited(_startSearch());
   }
 
   Future<void> _delete(BookkeepingRecord record) async {
@@ -327,17 +333,14 @@ class _SearchPageState extends ConsumerState<SearchPage> {
     if (mounted) await _startSearch();
   }
 
-  Future<void> _startSearch({bool resetResults = false}) async {
+  Future<void> _startSearch() async {
     if (!mounted) return;
     _searchDebounce?.cancel();
     final generation = ++_searchGeneration;
     final criteria = _criteria;
     final repository = ref.read(bookkeepingRepositoryProvider);
-    if (resetResults || (_pagingController == null && _amountPaging == null)) {
-      _pagingController?.invalidate();
+    if (_pagingController == null && _amountPaging == null) {
       setState(() {
-        _pagingController = null;
-        _amountPaging = null;
         _initialLoading = true;
         _loadError = null;
       });
@@ -367,6 +370,7 @@ class _SearchPageState extends ConsumerState<SearchPage> {
       setState(() {
         _pagingController = nextTime;
         _amountPaging = nextAmount;
+        _displayedOrder = criteria.order;
         _initialLoading = false;
         _loadError = null;
       });
@@ -386,6 +390,11 @@ class _SearchPageState extends ConsumerState<SearchPage> {
           _loadError = appErrorMessage(error, fallback: '搜索失败，请重试');
         });
       } else {
+        if (criteria.order != _displayedOrder) {
+          setState(() {
+            _criteria = _criteria.copyWith(order: _displayedOrder);
+          });
+        }
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(appErrorMessage(error, fallback: '搜索刷新失败，请重试')),
@@ -400,7 +409,7 @@ class _SearchPageState extends ConsumerState<SearchPage> {
     if (controller == null) return;
     try {
       final changed =
-          await (_criteria.order == BookkeepingSearchOrder.timeAscending
+          await (_displayedOrder == BookkeepingSearchOrder.timeAscending
               ? controller.loadNewer()
               : controller.loadOlder());
       if (changed && mounted && identical(controller, _pagingController)) {
@@ -418,7 +427,9 @@ class _SearchPageState extends ConsumerState<SearchPage> {
 
   void _prefetchAmountPage() {
     final controller = _amountPaging;
-    if (controller == null || !_amountListController.hasClients) return;
+    if (controller == null || _amountListController.positions.length != 1) {
+      return;
+    }
     final position = _amountListController.position;
     if (position.hasContentDimensions &&
         position.extentAfter < position.viewportDimension) {
@@ -488,6 +499,40 @@ final _trailingActionStyle = IconButton.styleFrom(
   padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xs),
 );
 
+class _SearchFilterReveal extends StatelessWidget {
+  const _SearchFilterReveal({required this.visible, required this.child});
+
+  final bool visible;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedSwitcher(
+      duration: MediaQuery.disableAnimationsOf(context)
+          ? Duration.zero
+          : AppMotion.standard,
+      switchInCurve: Curves.easeOutCubic,
+      switchOutCurve: Curves.easeInCubic,
+      transitionBuilder: (child, animation) => SizeTransition(
+        sizeFactor: animation,
+        alignment: Alignment.topCenter,
+        child: FadeTransition(opacity: animation, child: child),
+      ),
+      layoutBuilder: (current, outgoing) => Stack(
+        alignment: Alignment.topCenter,
+        children: [
+          for (final child in outgoing)
+            ExcludeFocus(
+              child: IgnorePointer(child: ExcludeSemantics(child: child)),
+            ),
+          ?current,
+        ],
+      ),
+      child: visible ? child : null,
+    );
+  }
+}
+
 class _FilterPanel extends StatelessWidget {
   const _FilterPanel({
     required this.type,
@@ -552,31 +597,34 @@ class _FilterPanel extends StatelessWidget {
               onSelectionChanged: (values) => onTypeChanged(values.first),
             ),
             const SizedBox(height: AppSpacing.componentGap),
-            if (type != null) ...[
-              _ClearableFilterButton(
-                buttonKey: const ValueKey('search-category-button'),
-                label: '分类',
-                placeholder: '全部分类',
-                value: categoryIds.isEmpty
-                    ? null
-                    : '已选${categoryIds.length}项分类',
-                onSelect: () async {
-                  final result = await showModalBottomSheet<Set<String>>(
-                    context: context,
-                    isScrollControlled: true,
-                    builder: (context) => _CategoryPicker(
-                      categories: categories,
-                      selected: categoryIds,
-                    ),
-                  );
-                  if (result != null && context.mounted) {
-                    onCategoriesChanged(result);
-                  }
-                },
-                onClear: () => onCategoriesChanged(const {}),
+            _SearchFilterReveal(
+              visible: type != null,
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: AppSpacing.componentGap),
+                child: _ClearableFilterButton(
+                  buttonKey: const ValueKey('search-category-button'),
+                  label: '分类',
+                  placeholder: '全部分类',
+                  value: categoryIds.isEmpty
+                      ? null
+                      : '已选${categoryIds.length}项分类',
+                  onSelect: () async {
+                    final result = await showModalBottomSheet<Set<String>>(
+                      context: context,
+                      isScrollControlled: true,
+                      builder: (context) => _CategoryPicker(
+                        categories: categories,
+                        selected: categoryIds,
+                      ),
+                    );
+                    if (result != null && context.mounted) {
+                      onCategoriesChanged(result);
+                    }
+                  },
+                  onClear: () => onCategoriesChanged(const {}),
+                ),
               ),
-              const SizedBox(height: AppSpacing.componentGap),
-            ],
+            ),
             Row(
               children: [
                 Expanded(
