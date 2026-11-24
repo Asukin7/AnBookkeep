@@ -1,7 +1,9 @@
+import 'package:anbookkeep/app/theme/app_spacing.dart';
 import 'package:anbookkeep/core/database/app_database.dart';
 import 'package:anbookkeep/core/database/database_provider.dart';
 import 'package:anbookkeep/core/datetime/local_minute.dart';
 import 'package:anbookkeep/core/money/money.dart';
+import 'package:anbookkeep/core/widgets/app_segmented_control.dart';
 import 'package:anbookkeep/features/bookkeeping/data/bookkeeping_repository.dart';
 import 'package:anbookkeep/features/bookkeeping/application/ledger_change_notifier.dart';
 import 'package:anbookkeep/features/bookkeeping/domain/entry_type.dart';
@@ -36,14 +38,18 @@ void main() {
 
   tearDown(() => database.close());
 
-  test('selected dates use a tilde separator', () {
+  final startDateButton = find.byKey(
+    const ValueKey('search-start-date-button'),
+  );
+  final endDateButton = find.byKey(const ValueKey('search-end-date-button'));
+
+  void expectDateLabelLeft(WidgetTester tester, Finder button, String text) {
+    final label = find.descendant(of: button, matching: find.text(text));
     expect(
-      searchDateRangeText(
-        DateTimeRange(start: DateTime(2026, 8), end: DateTime(2026, 8, 31)),
-      ),
-      '2026-08-01 ~ 2026-08-31',
+      tester.getTopLeft(label).dx - tester.getTopLeft(button).dx,
+      closeTo(AppSpacing.md, 0.1),
     );
-  });
+  }
 
   testWidgets('typing keyword and amount refreshes results automatically', (
     tester,
@@ -79,30 +85,75 @@ void main() {
     expect(find.text('午餐'), findsOneWidget);
     expect(find.text('纸巾'), findsNothing);
 
-    await tester.enterText(find.byType(TextField).first, '');
-    await tester.tap(find.byTooltip('展开筛选'));
-    await tester.pumpAndSettle();
-    final dateRangeButton = find.byKey(
-      const ValueKey('search-date-range-button'),
+    final keywordField = find.byType(TextField).first;
+    final expandButton = find.descendant(
+      of: keywordField,
+      matching: find.byTooltip('展开筛选'),
     );
-    expect(dateRangeButton, findsOneWidget);
-    expect(tester.widget(dateRangeButton), isA<FilledButton>());
-    expect(
-      find.descendant(of: dateRangeButton, matching: find.byType(Icon)),
-      findsNothing,
+    final collapseButton = find.descendant(
+      of: keywordField,
+      matching: find.byTooltip('收起筛选'),
     );
-    expect(
-      find.descendant(of: dateRangeButton, matching: find.text('时间范围')),
-      findsNothing,
-    );
-    expect(find.text('全部时间'), findsOneWidget);
+    void expectCenteredIcon(Finder button, IconData icon) {
+      final glyph = find.descendant(of: button, matching: find.byIcon(icon));
+      expect(
+        (tester.getCenter(glyph) - tester.getCenter(button)).distance,
+        lessThan(0.1),
+      );
+    }
 
-    final surfaceColor = Theme.of(tester.element(dateRangeButton))
+    expect(
+      tester.getCenter(expandButton).dx,
+      greaterThan(tester.getCenter(keywordField).dx),
+    );
+    expectCenteredIcon(expandButton, Icons.expand_more_rounded);
+    await tester.tap(expandButton);
+    await tester.pumpAndSettle();
+    expect(startDateButton, findsOneWidget);
+    expectCenteredIcon(collapseButton, Icons.expand_less_rounded);
+    await tester.tap(collapseButton);
+    await tester.pumpAndSettle();
+    expect(startDateButton, findsNothing);
+
+    await tester.enterText(keywordField, '');
+    await tester.tap(expandButton);
+    await tester.pumpAndSettle();
+    final typeFilter = find.byType(AppSegmentedButton<EntryType?>);
+    final categoryButton = find.byKey(const ValueKey('search-category-button'));
+    final minAmountField = find.widgetWithText(TextField, '最小金额');
+    final maxAmountField = find.widgetWithText(TextField, '最大金额');
+
+    void expectGroupGap(Finder above, Finder below) {
+      expect(
+        tester.getTopLeft(below).dy - tester.getBottomLeft(above).dy,
+        closeTo(AppSpacing.componentGap, 0.1),
+      );
+    }
+
+    expect(categoryButton, findsNothing);
+    expectGroupGap(typeFilter, startDateButton);
+    expectGroupGap(startDateButton, minAmountField);
+    expectDateLabelLeft(tester, startDateButton, '开始时间');
+    expectDateLabelLeft(tester, endDateButton, '结束时间');
+    expect(
+      tester.getTopLeft(startDateButton).dy,
+      tester.getTopLeft(endDateButton).dy,
+    );
+    expect(
+      tester.getSize(startDateButton).width,
+      tester.getSize(endDateButton).width,
+    );
+    expect(
+      find.descendant(of: startDateButton, matching: find.byType(Icon)),
+      findsNothing,
+    );
+
+    final surfaceColor = Theme.of(tester.element(startDateButton))
         .colorScheme
         .surfaceContainerLow;
     expect(
       tester
-          .widget<FilledButton>(dateRangeButton)
+          .widget<FilledButton>(startDateButton)
           .style
           ?.backgroundColor
           ?.resolve({}),
@@ -111,11 +162,13 @@ void main() {
 
     await tester.tap(find.text('支出'));
     await tester.pumpAndSettle();
-    final categoryButton = find.byKey(const ValueKey('search-category-button'));
     expect(categoryButton, findsOneWidget);
     expect(find.text('全部分类'), findsOneWidget);
+    expect(find.byTooltip('清除分类'), findsNothing);
+    expect(find.byTooltip('清除最小金额'), findsNothing);
+    expect(find.byTooltip('清除最大金额'), findsNothing);
     final dateText = tester.widget<Text>(
-      find.descendant(of: dateRangeButton, matching: find.text('全部时间')),
+      find.descendant(of: startDateButton, matching: find.text('开始时间')),
     );
     final categoryText = tester.widget<Text>(
       find.descendant(of: categoryButton, matching: find.text('全部分类')),
@@ -130,13 +183,11 @@ void main() {
           ?.resolve({}),
       surfaceColor,
     );
-    expect(
-      tester.getTopLeft(categoryButton).dy -
-          tester.getBottomLeft(dateRangeButton).dy,
-      closeTo(8, .1),
-    );
+    expectGroupGap(typeFilter, categoryButton);
+    expectGroupGap(categoryButton, startDateButton);
+    expectGroupGap(startDateButton, minAmountField);
 
-    await tester.enterText(find.widgetWithText(TextField, '最小金额'), '20');
+    await tester.enterText(minAmountField, '20');
     await tester.pumpAndSettle();
     expect(find.text('午餐'), findsNothing);
     expect(find.text('纸巾'), findsOneWidget);
@@ -146,10 +197,124 @@ void main() {
     await tester.tap(find.text('餐饮'));
     await tester.tap(find.widgetWithText(FilledButton, '确认'));
     await tester.pumpAndSettle();
-    expect(find.text('已选1项分类'), findsOneWidget);
+    expect(
+      tester.getCenter(find.text('已选1项分类')).dx,
+      closeTo(tester.getCenter(categoryButton).dx, 0.1),
+    );
+    expect(find.text('暂无符合条件的账单'), findsOneWidget);
+
+    final clearCategory = find.byTooltip('清除分类');
+    final clearBounds = tester.getRect(clearCategory);
+    expect(tester.getRect(categoryButton).intersect(clearBounds), clearBounds);
+    expectCenteredIcon(clearCategory, Icons.close_rounded);
+    await tester.tap(clearCategory);
+    await tester.pumpAndSettle();
+    expect(find.text('全部分类'), findsOneWidget);
+    expect(find.byTooltip('清除分类'), findsNothing);
+    expect(find.text('午餐'), findsNothing);
+    expect(find.text('纸巾'), findsOneWidget);
+
+    await tester.enterText(maxAmountField, '25');
+    await tester.pumpAndSettle();
+    expect(find.text('暂无符合条件的账单'), findsOneWidget);
+    await tester.tap(find.byTooltip('清除最小金额'));
+    await tester.pumpAndSettle();
+    expect(find.byTooltip('清除最小金额'), findsNothing);
+    expect(find.text('午餐'), findsOneWidget);
+    expect(find.text('纸巾'), findsNothing);
+
+    await tester.enterText(maxAmountField, 'invalid');
+    await tester.pumpAndSettle();
+    expect(find.text('请输入有效金额'), findsWidgets);
+    await tester.tap(find.byTooltip('清除最大金额'));
+    await tester.pumpAndSettle();
+    expect(find.text('请输入有效金额'), findsNothing);
+    expect(find.byTooltip('清除最大金额'), findsNothing);
+    expect(find.text('午餐'), findsOneWidget);
+    expect(find.text('纸巾'), findsOneWidget);
 
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();
+  });
+
+  testWidgets('start and end dates can be selected and cleared independently', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [appDatabaseProvider.overrideWithValue(database)],
+        child: const MaterialApp(home: SearchPage()),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('展开筛选'));
+    await tester.pumpAndSettle();
+
+    final datePicker = find.byType(DatePickerDialog);
+    Future<void> selectDate(
+      Finder button,
+      DateTime date, {
+      DateTime? firstDate,
+    }) async {
+      await tester.tap(button);
+      await tester.pumpAndSettle();
+      if (firstDate != null) {
+        expect(
+          tester.widget<DatePickerDialog>(datePicker).firstDate,
+          firstDate,
+        );
+      }
+      final localizations = MaterialLocalizations.of(
+        tester.element(datePicker),
+      );
+      await tester.tap(find.byTooltip(localizations.inputDateModeButtonLabel));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.descendant(of: datePicker, matching: find.byType(TextField)),
+        localizations.formatCompactDate(date),
+      );
+      await tester.tap(find.text(localizations.okButtonLabel));
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> clearDate(Finder button, String tooltip) async {
+      final clearButton = find.byTooltip(tooltip);
+      final clearBounds = tester.getRect(clearButton);
+      expect(tester.getRect(button).intersect(clearBounds), clearBounds);
+      await tester.tap(clearButton);
+      await tester.pumpAndSettle();
+      expect(datePicker, findsNothing);
+    }
+
+    final august29 = DateTime(2026, 8, 29);
+    await selectDate(startDateButton, august29);
+    expect(find.text('2026-08-29'), findsOneWidget);
+    expect(find.text('结束时间'), findsOneWidget);
+    expect(find.text('午餐'), findsNothing);
+    expect(find.text('纸巾'), findsOneWidget);
+
+    await selectDate(endDateButton, august29, firstDate: august29);
+    expectDateLabelLeft(tester, startDateButton, '2026-08-29');
+    expectDateLabelLeft(tester, endDateButton, '2026-08-29');
+    expect(find.text('午餐'), findsNothing);
+
+    await clearDate(startDateButton, '清除开始时间');
+    expect(find.text('开始时间'), findsOneWidget);
+    expect(find.text('2026-08-29'), findsOneWidget);
+    expect(find.text('午餐'), findsOneWidget);
+    expect(find.text('纸巾'), findsOneWidget);
+
+    await selectDate(endDateButton, DateTime(2026, 8, 28));
+    expect(find.text('午餐'), findsOneWidget);
+    expect(find.text('纸巾'), findsNothing);
+
+    await clearDate(endDateButton, '清除结束时间');
+    expect(find.text('结束时间'), findsOneWidget);
+    expect(find.text('午餐'), findsOneWidget);
+    expect(find.text('纸巾'), findsOneWidget);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump(const Duration(milliseconds: 1));
   });
 
   testWidgets('ledger change signal refreshes search results', (tester) async {

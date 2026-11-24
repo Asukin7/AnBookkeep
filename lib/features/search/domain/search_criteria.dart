@@ -26,7 +26,8 @@ final class SearchCriteria {
     bool clearType = false,
     String? startDate,
     String? endDate,
-    bool clearDateRange = false,
+    bool clearStartDate = false,
+    bool clearEndDate = false,
     Iterable<String>? categoryIds,
     int? minAmountMinor,
     int? maxAmountMinor,
@@ -36,8 +37,8 @@ final class SearchCriteria {
     return SearchCriteria(
       keyword: keyword ?? this.keyword,
       type: clearType ? null : type ?? this.type,
-      startDate: clearDateRange ? null : startDate ?? this.startDate,
-      endDate: clearDateRange ? null : endDate ?? this.endDate,
+      startDate: clearStartDate ? null : startDate ?? this.startDate,
+      endDate: clearEndDate ? null : endDate ?? this.endDate,
       categoryIds: categoryIds ?? this.categoryIds,
       minAmountMinor: clearMinAmount
           ? null

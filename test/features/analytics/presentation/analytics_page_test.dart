@@ -225,13 +225,10 @@ void main() {
 
     await openShoppingSearch();
     expect(
-      find.text(
-        searchDateRangeText(
-          DateTimeRange(start: DateTime(now.year, now.month), end: lastDay),
-        ),
-      ),
+      find.text(LocalMinute.fromDateTime(DateTime(now.year, now.month)).date),
       findsOneWidget,
     );
+    expect(find.text(LocalMinute.fromDateTime(lastDay).date), findsOneWidget);
     expect(find.text('上月购物'), findsNothing);
     expect(find.text('去年购物'), findsNothing);
 
@@ -251,7 +248,8 @@ void main() {
 
     await selectPeriod('年');
     await openShoppingSearch();
-    expect(find.text('${now.year}-01-01 ~ ${now.year}-12-31'), findsOneWidget);
+    expect(find.text('${now.year}-01-01'), findsOneWidget);
+    expect(find.text('${now.year}-12-31'), findsOneWidget);
     expect(find.text('去年购物'), findsNothing);
     await tester.tap(find.byType(BackButton));
     await tester.pumpAndSettle();
@@ -264,7 +262,8 @@ void main() {
     await tester.tap(find.widgetWithText(FilledButton, '确认'));
     await tester.pumpAndSettle();
     await openShoppingSearch();
-    expect(find.text('全部时间'), findsOneWidget);
+    expect(find.text('开始时间'), findsOneWidget);
+    expect(find.text('结束时间'), findsOneWidget);
     expect(find.text('上月购物'), findsOneWidget);
     expect(find.text('去年购物'), findsOneWidget);
 

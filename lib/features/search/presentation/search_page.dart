@@ -5,6 +5,7 @@ import 'package:anbookkeep/app/theme/app_spacing.dart';
 import 'package:anbookkeep/app/theme/app_tokens.dart';
 import 'package:anbookkeep/core/database/app_database.dart';
 import 'package:anbookkeep/core/datetime/app_date_policy.dart';
+import 'package:anbookkeep/core/datetime/local_minute.dart';
 import 'package:anbookkeep/core/errors/app_error_message.dart';
 import 'package:anbookkeep/core/logging/app_logger.dart';
 import 'package:anbookkeep/core/money/money.dart';
@@ -25,12 +26,6 @@ import 'package:decimal/decimal.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-
-String searchDateRangeText(DateTimeRange range) =>
-    '${_searchDateText(range.start)} ~ ${_searchDateText(range.end)}';
-
-String _searchDateText(DateTime date) =>
-    '${date.year.toString().padLeft(4, '0')}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
 
 class SearchPage extends ConsumerStatefulWidget {
   const SearchPage({super.key, this.initialCriteria});
@@ -54,7 +49,6 @@ class _SearchPageState extends ConsumerState<SearchPage> {
   bool _initialLoading = true;
   String? _loadError;
   bool _expanded = false;
-  DateTimeRange? _dateRange;
 
   @override
   void initState() {
@@ -68,14 +62,6 @@ class _SearchPageState extends ConsumerState<SearchPage> {
       }
       if (initial.maxAmountMinor case final maximum?) {
         _maxController.text = Money.fromMinorUnits(maximum).toString();
-      }
-      final start = initial.startDate;
-      final end = initial.endDate;
-      if (start != null && end != null) {
-        _dateRange = DateTimeRange(
-          start: DateTime.parse(start),
-          end: DateTime.parse(end),
-        );
       }
     }
     Future<void>.microtask(_startSearch);
@@ -113,7 +99,11 @@ class _SearchPageState extends ConsumerState<SearchPage> {
       clearMaxAmount: error != null || maxResult.value == null,
     );
     if (errorChanged) setState(() {});
-    if (error == null && _criteria != previousCriteria) _scheduleSearch();
+    if (error != null) {
+      _searchDebounce?.cancel();
+    } else if (errorChanged || _criteria != previousCriteria) {
+      _scheduleSearch();
+    }
   }
 
   void _scheduleSearch() {
@@ -156,41 +146,31 @@ class _SearchPageState extends ConsumerState<SearchPage> {
               AppSpacing.pageHorizontal,
               AppSpacing.controlGap,
             ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _keywordController,
-                    textInputAction: TextInputAction.search,
-                    onChanged: (_) => _syncTextCriteria(),
-                    decoration: const InputDecoration(
-                      hintText: '搜索备注',
-                      prefixIcon: Icon(Icons.search_rounded),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: AppSpacing.controlGap),
-                IconButton(
+            child: TextField(
+              controller: _keywordController,
+              textInputAction: TextInputAction.search,
+              onChanged: (_) => _syncTextCriteria(),
+              decoration: InputDecoration(
+                hintText: '搜索备注',
+                prefixIcon: const Icon(Icons.search_rounded),
+                suffixIcon: IconButton(
                   tooltip: _expanded ? '收起筛选' : '展开筛选',
                   onPressed: () => setState(() => _expanded = !_expanded),
-                  style: IconButton.styleFrom(
-                    backgroundColor: Theme.of(context)
-                        .colorScheme
-                        .surfaceContainerLow,
-                  ),
+                  style: _trailingActionStyle,
                   icon: Icon(
                     _expanded
                         ? Icons.expand_less_rounded
                         : Icons.expand_more_rounded,
                   ),
                 ),
-              ],
+              ),
             ),
           ),
           if (_expanded)
             _FilterPanel(
               type: _criteria.type,
-              dateRange: _dateRange,
+              startDate: _criteria.startDate,
+              endDate: _criteria.endDate,
               categoryIds: _criteria.categoryIds.toSet(),
               categories: availableCategories,
               minController: _minController,
@@ -206,19 +186,10 @@ class _SearchPageState extends ConsumerState<SearchPage> {
                 });
                 _startSearch();
               },
-              onDateRangeChanged: (value) {
-                setState(() {
-                  _dateRange = value;
-                  _criteria = _criteria.copyWith(
-                    startDate: value == null
-                        ? null
-                        : _searchDateText(value.start),
-                    endDate: value == null ? null : _searchDateText(value.end),
-                    clearDateRange: value == null,
-                  );
-                });
-                _startSearch();
-              },
+              onSelectStartDate: () => _selectDate(isStart: true),
+              onSelectEndDate: () => _selectDate(isStart: false),
+              onClearStartDate: () => _setDate(null, isStart: true),
+              onClearEndDate: () => _setDate(null, isStart: false),
               onCategoriesChanged: (value) {
                 setState(() {
                   _criteria = _criteria.copyWith(categoryIds: value);
@@ -226,7 +197,6 @@ class _SearchPageState extends ConsumerState<SearchPage> {
                 _startSearch();
               },
               onTextChanged: _syncTextCriteria,
-              loadDateBounds: _loadDateBounds,
               onReset: _reset,
             ),
           Expanded(
@@ -260,18 +230,36 @@ class _SearchPageState extends ConsumerState<SearchPage> {
     );
   }
 
-  Future<AppDateBounds> _loadDateBounds() async {
+  Future<void> _selectDate({required bool isStart}) async {
     final dataRange = await ref
         .read(bookkeepingRepositoryProvider)
         .dataYearRange();
-    return AppDatePolicy.pickerBounds(
+    if (!mounted) return;
+    final start = DateTime.tryParse(_criteria.startDate ?? '');
+    final end = DateTime.tryParse(_criteria.endDate ?? '');
+    final bounds = AppDatePolicy.pickerBounds(
       dataMinimumYear: dataRange?.minYear,
       dataMaximumYear: dataRange?.maxYear,
-      anchorYears: [
-        if (_dateRange != null) _dateRange!.start.year,
-        if (_dateRange != null) _dateRange!.end.year,
-      ],
+      anchorYears: [if (start != null) start.year, if (end != null) end.year],
     );
+    final date = await showDatePicker(
+      context: context,
+      helpText: isStart ? '开始时间' : '结束时间',
+      initialDate: (isStart ? start ?? end : end ?? start) ?? DateTime.now(),
+      firstDate: isStart ? bounds.firstDate : start ?? bounds.firstDate,
+      lastDate: isStart ? end ?? bounds.lastDate : bounds.lastDate,
+    );
+    if (date == null || !mounted) return;
+    _setDate(LocalMinute.fromDateTime(date).date, isStart: isStart);
+  }
+
+  void _setDate(String? date, {required bool isStart}) {
+    final next = isStart
+        ? _criteria.copyWith(startDate: date, clearStartDate: date == null)
+        : _criteria.copyWith(endDate: date, clearEndDate: date == null);
+    if (next == _criteria) return;
+    setState(() => _criteria = next);
+    unawaited(_startSearch());
   }
 
   void _reset() {
@@ -279,7 +267,6 @@ class _SearchPageState extends ConsumerState<SearchPage> {
     _minController.clear();
     _maxController.clear();
     setState(() {
-      _dateRange = null;
       _amountError = null;
       _criteria = SearchCriteria();
     });
@@ -398,41 +385,51 @@ class _SearchPageState extends ConsumerState<SearchPage> {
 
 const _log = AppLogger('Search');
 
+final _trailingActionStyle = IconButton.styleFrom(
+  backgroundColor: Colors.transparent,
+  alignment: Alignment.center,
+  padding: const EdgeInsets.symmetric(horizontal: AppSpacing.xs),
+);
+
 class _FilterPanel extends StatelessWidget {
   const _FilterPanel({
     required this.type,
-    required this.dateRange,
+    required this.startDate,
+    required this.endDate,
     required this.categoryIds,
     required this.categories,
     required this.minController,
     required this.maxController,
     required this.amountError,
     required this.onTypeChanged,
-    required this.onDateRangeChanged,
+    required this.onSelectStartDate,
+    required this.onSelectEndDate,
+    required this.onClearStartDate,
+    required this.onClearEndDate,
     required this.onCategoriesChanged,
     required this.onTextChanged,
-    required this.loadDateBounds,
     required this.onReset,
   });
 
   final EntryType? type;
-  final DateTimeRange? dateRange;
+  final String? startDate;
+  final String? endDate;
   final Set<String> categoryIds;
   final List<CategoryRow> categories;
   final TextEditingController minController;
   final TextEditingController maxController;
   final String? amountError;
   final ValueChanged<EntryType?> onTypeChanged;
-  final ValueChanged<DateTimeRange?> onDateRangeChanged;
+  final VoidCallback onSelectStartDate;
+  final VoidCallback onSelectEndDate;
+  final VoidCallback onClearStartDate;
+  final VoidCallback onClearEndDate;
   final ValueChanged<Set<String>> onCategoriesChanged;
   final VoidCallback onTextChanged;
-  final Future<AppDateBounds> Function() loadDateBounds;
   final VoidCallback onReset;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
     return AppCard(
       margin: const EdgeInsets.fromLTRB(
         AppSpacing.pageHorizontal,
@@ -454,99 +451,74 @@ class _FilterPanel extends StatelessWidget {
               onSelectionChanged: (values) => onTypeChanged(values.first),
             ),
             const SizedBox(height: AppSpacing.componentGap),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton(
-                key: const ValueKey('search-date-range-button'),
-                style: FilledButton.styleFrom(
-                  foregroundColor: colorScheme.onSurface,
-                  backgroundColor: colorScheme.surfaceContainerLow,
-                  side: BorderSide.none,
-                ),
-                onPressed: () async {
-                  final bounds = await loadDateBounds();
-                  if (!context.mounted) return;
-                  final value = await showDateRangePicker(
-                    context: context,
-                    firstDate: bounds.firstDate,
-                    lastDate: bounds.lastDate,
-                    initialDateRange: dateRange,
-                  );
-                  if (value != null) onDateRangeChanged(value);
-                },
-                child: Text(
-                  dateRange == null ? '全部时间' : searchDateRangeText(dateRange!),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.labelMedium?.copyWith(
-                    color: colorScheme.onSurface,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ),
-            ),
             if (type != null) ...[
-              const SizedBox(height: AppSpacing.controlGap),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton(
-                  key: const ValueKey('search-category-button'),
-                  style: FilledButton.styleFrom(
-                    foregroundColor: colorScheme.onSurface,
-                    backgroundColor: colorScheme.surfaceContainerLow,
-                    side: BorderSide.none,
-                  ),
-                  onPressed: () async {
-                    final result = await showModalBottomSheet<Set<String>>(
-                      context: context,
-                      isScrollControlled: true,
-                      builder: (context) => _CategoryPicker(
-                        categories: categories,
-                        selected: categoryIds,
-                      ),
-                    );
-                    if (result != null) onCategoriesChanged(result);
-                  },
-                  child: Text(
-                    categoryIds.isEmpty ? '全部分类' : '已选${categoryIds.length}项分类',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.labelMedium?.copyWith(
-                      color: colorScheme.onSurface,
-                      fontWeight: FontWeight.w500,
+              _ClearableFilterButton(
+                buttonKey: const ValueKey('search-category-button'),
+                label: '分类',
+                placeholder: '全部分类',
+                value: categoryIds.isEmpty
+                    ? null
+                    : '已选${categoryIds.length}项分类',
+                onSelect: () async {
+                  final result = await showModalBottomSheet<Set<String>>(
+                    context: context,
+                    isScrollControlled: true,
+                    builder: (context) => _CategoryPicker(
+                      categories: categories,
+                      selected: categoryIds,
                     ),
-                  ),
-                ),
+                  );
+                  if (result != null && context.mounted) {
+                    onCategoriesChanged(result);
+                  }
+                },
+                onClear: () => onCategoriesChanged(const {}),
               ),
+              const SizedBox(height: AppSpacing.componentGap),
             ],
-            const SizedBox(height: AppSpacing.componentGap),
             Row(
               children: [
                 Expanded(
-                  child: TextField(
-                    controller: minController,
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
-                    ),
-                    onChanged: (_) => onTextChanged(),
-                    decoration: InputDecoration(
-                      labelText: '最小金额',
-                      errorText: amountError,
-                    ),
+                  child: _ClearableFilterButton(
+                    buttonKey: const ValueKey('search-start-date-button'),
+                    label: '开始时间',
+                    value: startDate,
+                    alignStart: true,
+                    onSelect: onSelectStartDate,
+                    onClear: onClearStartDate,
                   ),
                 ),
                 const SizedBox(width: AppSpacing.controlGap),
                 Expanded(
-                  child: TextField(
+                  child: _ClearableFilterButton(
+                    buttonKey: const ValueKey('search-end-date-button'),
+                    label: '结束时间',
+                    value: endDate,
+                    alignStart: true,
+                    onSelect: onSelectEndDate,
+                    onClear: onClearEndDate,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.componentGap),
+            Row(
+              children: [
+                Expanded(
+                  child: _AmountFilterField(
+                    label: '最小金额',
+                    controller: minController,
+                    onChanged: onTextChanged,
+                    error: amountError,
+                  ),
+                ),
+                const SizedBox(width: AppSpacing.controlGap),
+                Expanded(
+                  child: _AmountFilterField(
+                    label: '最大金额',
                     controller: maxController,
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
-                    ),
-                    onChanged: (_) => onTextChanged(),
-                    decoration: InputDecoration(
-                      labelText: '最大金额',
-                      errorText: amountError,
-                    ),
+                    onChanged: onTextChanged,
+                    error: amountError,
                   ),
                 ),
               ],
@@ -562,6 +534,134 @@ class _FilterPanel extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _ClearableFilterButton extends StatelessWidget {
+  const _ClearableFilterButton({
+    required this.buttonKey,
+    required this.label,
+    required this.value,
+    required this.onSelect,
+    required this.onClear,
+    this.placeholder,
+    this.alignStart = false,
+  });
+
+  final Key buttonKey;
+  final String label;
+  final String? value;
+  final String? placeholder;
+  final bool alignStart;
+  final VoidCallback onSelect;
+  final VoidCallback onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final padding = alignStart
+        ? EdgeInsetsDirectional.only(
+            start: AppSpacing.md,
+            end: value == null ? AppSpacing.md : AppSizes.control,
+          )
+        : EdgeInsets.symmetric(
+            horizontal: value == null ? AppSpacing.xxs : AppSpacing.xl,
+          );
+    return Stack(
+      children: [
+        SizedBox(
+          width: double.infinity,
+          child: FilledButton(
+            key: buttonKey,
+            style: FilledButton.styleFrom(
+              foregroundColor: colors.onSurface,
+              backgroundColor: colors.surfaceContainerLow,
+              side: BorderSide.none,
+              alignment: alignStart
+                  ? AlignmentDirectional.centerStart
+                  : Alignment.center,
+              padding: padding,
+            ),
+            onPressed: onSelect,
+            child: Text(
+              value ?? placeholder ?? label,
+              semanticsLabel: value == null ? null : '$label $value',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.labelMedium?.copyWith(
+                color: colors.onSurface,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+        ),
+        if (value != null)
+          PositionedDirectional(
+            end: 0,
+            top: 0,
+            bottom: 0,
+            width: AppSizes.control,
+            child: _FilterClearButton(label: label, onPressed: onClear),
+          ),
+      ],
+    );
+  }
+}
+
+class _AmountFilterField extends StatelessWidget {
+  const _AmountFilterField({
+    required this.label,
+    required this.controller,
+    required this.onChanged,
+    required this.error,
+  });
+
+  final String label;
+  final TextEditingController controller;
+  final VoidCallback onChanged;
+  final String? error;
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<TextEditingValue>(
+      valueListenable: controller,
+      builder: (context, value, _) => TextField(
+        controller: controller,
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        onChanged: (_) => onChanged(),
+        decoration: InputDecoration(
+          labelText: label,
+          errorText: error,
+          suffixIcon: value.text.isEmpty
+              ? null
+              : _FilterClearButton(
+                  label: label,
+                  onPressed: () {
+                    controller.clear();
+                    onChanged();
+                  },
+                ),
+        ),
+      ),
+    );
+  }
+}
+
+class _FilterClearButton extends StatelessWidget {
+  const _FilterClearButton({required this.label, required this.onPressed});
+
+  final String label;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      tooltip: '清除$label',
+      onPressed: onPressed,
+      style: _trailingActionStyle,
+      icon: const Icon(Icons.close_rounded, size: AppSizes.iconAuxiliary),
     );
   }
 }
