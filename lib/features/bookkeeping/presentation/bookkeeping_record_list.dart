@@ -379,7 +379,9 @@ class BookkeepingDayGroup extends StatelessWidget {
                 Text(
                   '${MoneyFormatter.formatMinorUnits(income, prefix: '+', useGrouping: useGrouping)} · '
                   '${MoneyFormatter.formatMinorUnits(expense, prefix: '-', useGrouping: useGrouping)}',
-                  style: Theme.of(context).textTheme.bodySmall,
+                  style: AppTypography.numeric(
+                    Theme.of(context).textTheme.bodySmall,
+                  ),
                 ),
               ],
             ),
@@ -472,8 +474,9 @@ class BookkeepingRecordTile extends StatelessWidget {
             prefix: record.type.prefix,
             useGrouping: useGrouping,
           ),
-          style: Theme.of(context).textTheme.labelLarge
-              ?.copyWith(color: amountColor),
+          textAlign: TextAlign.right,
+          style: AppTypography.numeric(Theme.of(context).textTheme.labelLarge)
+              .copyWith(color: amountColor),
         ),
         onTap: onTap == null ? null : () => onTap!(record),
       ),

@@ -21,7 +21,7 @@ class AppSegmentedSurface extends StatelessWidget {
         borderRadius: BorderRadius.circular(AppRadii.control),
       ),
       child: Padding(
-        padding: const EdgeInsets.all(AppSpacing.xxs),
+        padding: const EdgeInsets.all(AppSpacing.segmentedTrackInset),
         child: ConstrainedBox(
           constraints: BoxConstraints(
             minHeight: compact
@@ -138,11 +138,11 @@ class _AppSegment<T> extends StatelessWidget {
         color: selected ? cardColor : Colors.transparent,
         elevation: selected ? AppElevation.selected : AppElevation.none,
         shadowColor: selectedShadow,
-        borderRadius: BorderRadius.circular(AppRadii.compact),
+        borderRadius: BorderRadius.circular(AppRadii.segmentIndicator),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: segment.enabled ? onTap : null,
-          borderRadius: BorderRadius.circular(AppRadii.compact),
+          borderRadius: BorderRadius.circular(AppRadii.segmentIndicator),
           child: Padding(
             padding: const EdgeInsets.symmetric(
               horizontal: AppSpacing.sm,

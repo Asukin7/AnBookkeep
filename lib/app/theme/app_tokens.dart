@@ -1,10 +1,14 @@
+import 'package:anbookkeep/app/theme/app_spacing.dart';
 import 'package:flutter/material.dart';
 
 abstract final class AppRadii {
   static const double small = 4;
-  static const double compact = 10;
-  static const double control = 14;
-  static const double input = 16;
+  static const double compact = 8;
+  static const double control = 16;
+  static const double segmentIndicator =
+      control - AppSpacing.segmentedTrackInset;
+  static const double tabIndicator =
+      segmentIndicator - AppSpacing.tabIndicatorInset;
   static const double card = 20;
 }
 
@@ -72,7 +76,13 @@ abstract final class AppShadows {
 
 abstract final class AppTypography {
   static TextStyle calculator(TextTheme textTheme) =>
-      textTheme.titleMedium!.copyWith(fontWeight: FontWeight.w500);
+      numeric(textTheme.titleMedium).copyWith(fontWeight: FontWeight.w500);
+
+  static TextStyle numeric(TextStyle? style) => (style ?? const TextStyle())
+      .copyWith(fontFeatures: const [FontFeature.tabularFigures()]);
+
+  static TextStyle summaryNumber(TextTheme textTheme) =>
+      numeric(textTheme.labelLarge).copyWith(fontWeight: FontWeight.w700);
 
   static TextTheme textTheme(Brightness brightness) {
     final base = brightness == Brightness.light
@@ -82,52 +92,52 @@ abstract final class AppTypography {
       headlineSmall: base.headlineSmall?.copyWith(
         fontSize: 24,
         fontWeight: FontWeight.w600,
-        height: 1.2,
+        height: 28 / 24,
       ),
       titleLarge: base.titleLarge?.copyWith(
         fontSize: 20,
         fontWeight: FontWeight.w600,
-        height: 1.25,
+        height: 28 / 20,
       ),
       titleMedium: base.titleMedium?.copyWith(
         fontSize: 16,
         fontWeight: FontWeight.w600,
-        height: 1.3,
+        height: 24 / 16,
       ),
       titleSmall: base.titleSmall?.copyWith(
         fontSize: 14,
         fontWeight: FontWeight.w600,
-        height: 1.3,
+        height: 20 / 14,
       ),
       bodyLarge: base.bodyLarge?.copyWith(
         fontSize: 16,
         fontWeight: FontWeight.w400,
-        height: 1.5,
+        height: 24 / 16,
       ),
       bodyMedium: base.bodyMedium?.copyWith(
         fontSize: 14,
         fontWeight: FontWeight.w400,
-        height: 1.5,
+        height: 20 / 14,
       ),
       bodySmall: base.bodySmall?.copyWith(
         fontSize: 12,
         fontWeight: FontWeight.w400,
-        height: 1.4,
+        height: 16 / 12,
       ),
       labelLarge: base.labelLarge?.copyWith(
         fontSize: 14,
         fontWeight: FontWeight.w600,
-        height: 1.2,
+        height: 16 / 14,
       ),
       labelMedium: base.labelMedium?.copyWith(
         fontSize: 12,
         fontWeight: FontWeight.w500,
-        height: 1.2,
+        height: 16 / 12,
       ),
       labelSmall: base.labelSmall?.copyWith(
         fontSize: 10,
         fontWeight: FontWeight.w500,
-        height: 1.2,
+        height: 12 / 10,
       ),
     );
   }

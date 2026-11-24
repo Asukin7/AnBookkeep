@@ -342,7 +342,8 @@ class _BatchRecognitionPageState extends ConsumerState<BatchRecognitionPage> {
                       settings.amountDisplayFormat ==
                       AmountDisplayFormat.grouped,
                 ),
-                style: style.titleSmall!.copyWith(color: amountColor),
+                style: AppTypography.numeric(style.titleSmall)
+                    .copyWith(color: amountColor),
               ),
             ],
           ],

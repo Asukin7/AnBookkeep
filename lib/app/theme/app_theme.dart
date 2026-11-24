@@ -33,14 +33,15 @@ abstract final class AppTheme {
       brightness: brightness,
     );
     final deleteColor = isLight ? AppColors.deleteLight : AppColors.deleteDark;
+    final primaryBrightness = ThemeData.estimateBrightnessForColor(seedColor);
     // Keep the user's selected theme color exact. `fromSeed` intentionally
     // generates a tonal palette, which can otherwise turn #FFFFFF into a
     // different accent color.
     final colorScheme = generatedScheme.copyWith(
       primary: seedColor,
-      onPrimary: seedColor.computeLuminance() > .5
-          ? Colors.black
-          : Colors.white,
+      onPrimary: primaryBrightness == Brightness.dark
+          ? Colors.white
+          : Colors.black,
       error: deleteColor,
       onError: Colors.white,
       surfaceTint: seedColor,
@@ -107,7 +108,7 @@ abstract final class AppTheme {
       tabBarTheme: TabBarThemeData(
         indicator: BoxDecoration(
           color: cardBackground,
-          borderRadius: BorderRadius.circular(AppRadii.compact),
+          borderRadius: BorderRadius.circular(AppRadii.tabIndicator),
           boxShadow: [AppShadows.selected(selectedSegmentShadow)],
         ),
         indicatorSize: TabBarIndicatorSize.tab,
@@ -134,15 +135,15 @@ abstract final class AppTheme {
         filled: true,
         fillColor: colorScheme.surfaceContainerLow,
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(AppRadii.input),
+          borderRadius: BorderRadius.circular(AppRadii.control),
           borderSide: BorderSide.none,
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(AppRadii.input),
+          borderRadius: BorderRadius.circular(AppRadii.control),
           borderSide: BorderSide.none,
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(AppRadii.input),
+          borderRadius: BorderRadius.circular(AppRadii.control),
           borderSide: BorderSide(color: colorScheme.primary, width: 1.5),
         ),
       ),

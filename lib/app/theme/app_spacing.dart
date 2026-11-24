@@ -17,6 +17,8 @@ abstract final class AppSpacing {
   static const double pageBottom = lg;
   static const double componentGap = sm;
   static const double controlGap = xs;
+  static const double segmentedTrackInset = xxs;
+  static const double tabIndicatorInset = segmentedTrackInset / 2;
 
   static const EdgeInsets pagePadding = EdgeInsets.fromLTRB(
     pageHorizontal,

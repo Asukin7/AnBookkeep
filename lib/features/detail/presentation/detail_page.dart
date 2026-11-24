@@ -774,7 +774,8 @@ class _Metric extends StatelessWidget {
             value,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: textTheme.labelLarge?.copyWith(color: color),
+            style: AppTypography.summaryNumber(textTheme)
+                .copyWith(color: color),
           ),
         ],
       ),

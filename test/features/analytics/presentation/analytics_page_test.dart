@@ -374,8 +374,9 @@ void main() {
     );
     expect(
       tester.widget<Text>(categoryAmount).style,
-      Theme.of(tester.element(categoryAmount)).textTheme.labelLarge
-          ?.copyWith(color: AppColors.expense),
+      AppTypography.numeric(
+        Theme.of(tester.element(categoryAmount)).textTheme.labelLarge,
+      ).copyWith(color: AppColors.expense),
     );
     expect(
       tester.getTopLeft(categoryName).dx - tester.getTopRight(categoryIcon).dx,

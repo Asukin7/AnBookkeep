@@ -106,7 +106,7 @@ class _AppColorPickerSheetState extends State<AppColorPickerSheet> {
           children: [
             InkWell(
               onTap: _editHex,
-              borderRadius: BorderRadius.circular(AppRadii.input),
+              borderRadius: BorderRadius.circular(AppRadii.control),
               child: Padding(
                 padding: const EdgeInsets.all(AppSpacing.controlGap),
                 child: Row(

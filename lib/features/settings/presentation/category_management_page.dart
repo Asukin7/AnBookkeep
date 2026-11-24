@@ -14,8 +14,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-const _tabIndicatorInset = 2.0;
-
 class CategoryManagementPage extends ConsumerStatefulWidget {
   const CategoryManagementPage({super.key});
 
@@ -54,9 +52,8 @@ class _CategoryManagementPageState extends ConsumerState<CategoryManagementPage>
             child: AppSegmentedSurface(
               child: TabBar(
                 controller: _tabs,
-                indicatorPadding: const EdgeInsets.symmetric(
-                  horizontal: _tabIndicatorInset,
-                  vertical: _tabIndicatorInset,
+                indicatorPadding: const EdgeInsets.all(
+                  AppSpacing.tabIndicatorInset,
                 ),
                 tabs: const [
                   Tab(text: '支出'),

@@ -486,7 +486,8 @@ class _SummaryMetric extends StatelessWidget {
             value,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: textTheme.labelLarge?.copyWith(color: color),
+            style: AppTypography.summaryNumber(textTheme)
+                .copyWith(color: color),
           ),
         ],
       ),
@@ -544,6 +545,8 @@ class _TrendCard extends StatelessWidget {
     final visibleXIndexes = _sampleAxisIndexes(keys.length, maxCount: 12);
     final theme = Theme.of(context);
     final primary = theme.colorScheme.primary;
+    final axisTextStyle = AppTypography.numeric(theme.textTheme.labelSmall);
+    final tooltipTextStyle = axisTextStyle.copyWith(color: Colors.white);
     final titles = FlTitlesData(
       leftTitles: AxisTitles(
         sideTitles: SideTitles(
@@ -552,10 +555,8 @@ class _TrendCard extends StatelessWidget {
           reservedSize: _amountAxisReservedSize,
           minIncluded: false,
           maxIncluded: false,
-          getTitlesWidget: (value, meta) => Text(
-            _compactAxisAmount(value),
-            style: theme.textTheme.labelSmall,
-          ),
+          getTitlesWidget: (value, meta) =>
+              Text(_compactAxisAmount(value), style: axisTextStyle),
         ),
       ),
       rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
@@ -572,10 +573,7 @@ class _TrendCard extends StatelessWidget {
                 !visibleXIndexes.contains(index)) {
               return const SizedBox.shrink();
             }
-            return Text(
-              _axisPeriodLabel(keys[index]),
-              style: theme.textTheme.labelSmall,
-            );
+            return Text(_axisPeriodLabel(keys[index]), style: axisTextStyle);
           },
         ),
       ),
@@ -633,8 +631,7 @@ class _TrendCard extends StatelessWidget {
                               return BarTooltipItem(
                                 '${_trendLabel(period, keys[groupIndex])}\n'
                                 '${_trendAmount(minor, dimension, useGrouping)}',
-                                Theme.of(context).textTheme.labelSmall!
-                                    .copyWith(color: Colors.white),
+                                tooltipTextStyle,
                               );
                             },
                           ),
@@ -649,13 +646,13 @@ class _TrendCard extends StatelessWidget {
                                   color: primary,
                                   width: 12,
                                   borderRadius: spots[i].y >= 0
-                                      ? const BorderRadius.only(
-                                          topLeft: Radius.circular(4),
-                                          topRight: Radius.circular(4),
+                                      ? const BorderRadius.vertical(
+                                          top: Radius.circular(AppRadii.small),
                                         )
-                                      : const BorderRadius.only(
-                                          bottomLeft: Radius.circular(4),
-                                          bottomRight: Radius.circular(4),
+                                      : const BorderRadius.vertical(
+                                          bottom: Radius.circular(
+                                            AppRadii.small,
+                                          ),
                                         ),
                                 ),
                               ],
@@ -685,8 +682,7 @@ class _TrendCard extends StatelessWidget {
                                   period,
                                   dimension,
                                   useGrouping,
-                                  Theme.of(context).textTheme.labelSmall!
-                                      .copyWith(color: Colors.white),
+                                  tooltipTextStyle,
                                 ),
                             ],
                           ),
@@ -844,10 +840,9 @@ class _CategoryCardState extends State<_CategoryCard> {
                                   : '${(pieItems[i].$2 * 100 / total).toStringAsFixed(0)}%',
                               color: pieColors[i],
                               radius: touchedIndex == i ? 64 : 58,
-                              titleStyle: Theme.of(context)
-                                  .textTheme
-                                  .labelSmall!
-                                  .copyWith(color: Colors.white),
+                              titleStyle: AppTypography.numeric(
+                                Theme.of(context).textTheme.labelSmall,
+                              ).copyWith(color: Colors.white),
                             ),
                         ],
                       ),
@@ -879,8 +874,10 @@ class _CategoryCardState extends State<_CategoryCard> {
                                   '${_trendAmount(pieItems[touchedIndex].$2, widget.dimension, widget.useGrouping)} · '
                                   '${total == 0 ? '0.00' : (pieItems[touchedIndex].$2 * 100 / total).toStringAsFixed(2)}%',
                                   textAlign: TextAlign.center,
-                                  style: Theme.of(context).textTheme.bodySmall
-                                      ?.copyWith(
+                                  style:
+                                      AppTypography.numeric(
+                                        Theme.of(context).textTheme.bodySmall,
+                                      ).copyWith(
                                         color: Theme.of(context)
                                             .colorScheme
                                             .onInverseSurface,
@@ -953,7 +950,10 @@ class _CategoryLegend extends StatelessWidget {
           decoration: BoxDecoration(color: color, shape: BoxShape.circle),
         ),
         const SizedBox(width: AppSpacing.xxs),
-        Text(text, style: Theme.of(context).textTheme.labelSmall),
+        Text(
+          text,
+          style: AppTypography.numeric(Theme.of(context).textTheme.labelSmall),
+        ),
       ],
     );
   }
@@ -1003,8 +1003,9 @@ class _CategoryRow extends StatelessWidget {
                     const SizedBox(width: AppSpacing.md),
                     Text(
                       '${MoneyFormatter.formatMinorUnits(item.$2, prefix: item.$1.type == EntryType.income ? '+' : '-', useGrouping: useGrouping)}(${(percent * 100).toStringAsFixed(2)}%)',
-                      style: Theme.of(context).textTheme.labelLarge
-                          ?.copyWith(color: amountColor),
+                      style: AppTypography.numeric(
+                        Theme.of(context).textTheme.labelLarge,
+                      ).copyWith(color: amountColor),
                     ),
                   ],
                 ),

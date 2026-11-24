@@ -33,11 +33,15 @@ void main() {
       [
         AppRadii.small,
         AppRadii.compact,
+        AppRadii.segmentIndicator,
         AppRadii.control,
-        AppRadii.input,
         AppRadii.card,
       ],
-      [4, 10, 14, 16, 20],
+      [4, 8, 12, 16, 20],
+    );
+    expect(
+      AppRadii.control - AppRadii.tabIndicator,
+      AppSpacing.segmentedTrackInset + AppSpacing.tabIndicatorInset,
     );
     expect(AppSizes.control, 48);
     expect(AppSizes.iconStandard, 24);
@@ -48,8 +52,19 @@ void main() {
   test('theme applies typography and modal standards', () {
     final theme = AppTheme.light();
     expect(theme.textTheme.titleLarge?.fontSize, 20);
+    expect(theme.textTheme.titleLarge?.height, 28 / 20);
     expect(theme.textTheme.bodyMedium?.fontSize, 14);
+    expect(theme.textTheme.bodyMedium?.height, 20 / 14);
     expect(theme.textTheme.labelSmall?.fontSize, 10);
+    expect(
+      AppTypography.summaryNumber(theme.textTheme).fontWeight,
+      FontWeight.w700,
+    );
+    expect(AppTypography.summaryNumber(theme.textTheme).fontFeatures, [
+      const FontFeature.tabularFigures(),
+    ]);
+    expect(theme.colorScheme.primary, AppColors.seed);
+    expect(theme.colorScheme.onPrimary, Colors.black);
     expect(theme.bottomSheetTheme.showDragHandle, isTrue);
     expect(theme.filledButtonTheme.style?.minimumSize?.resolve({})?.height, 48);
     expect(theme.colorScheme.error, AppColors.deleteLight);
@@ -60,11 +75,27 @@ void main() {
     expect(theme.iconTheme.color, theme.colorScheme.onSurface);
 
     final darkTheme = AppTheme.dark();
+    expect(
+      AppTheme.dark(seedColor: const Color(0xFF222222)).colorScheme.onPrimary,
+      Colors.white,
+    );
     expect(darkTheme.colorScheme.error, AppColors.deleteDark);
     expect(
       darkTheme.appBarTheme.systemOverlayStyle?.statusBarIconBrightness,
       Brightness.light,
     );
     expect(darkTheme.iconTheme.color, darkTheme.colorScheme.onSurface);
+  });
+
+  test('medium blues use white on primary in both modes', () {
+    for (final blue in const [Color(0xFF2277FF), Color(0xFF3377FF)]) {
+      for (final theme in [
+        AppTheme.light(seedColor: blue),
+        AppTheme.dark(seedColor: blue),
+      ]) {
+        expect(theme.colorScheme.primary, blue);
+        expect(theme.colorScheme.onPrimary, Colors.white);
+      }
+    }
   });
 }

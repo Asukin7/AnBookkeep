@@ -172,7 +172,7 @@ class _BookkeepingPageState extends ConsumerState<BookkeepingPage> {
         final selected = category.id == _selectedCategoryId;
         final color = Color(category.colorValue);
         return InkWell(
-          borderRadius: BorderRadius.circular(AppRadii.input),
+          borderRadius: BorderRadius.circular(AppRadii.control),
           onTap: () => setState(() {
             _selectedCategoryId = category.id;
             _positionedCategoryId = category.id;
@@ -529,6 +529,7 @@ class _CalculatorDisplay extends StatelessWidget {
     final equation = hasOperator
         ? (state.isCommitted ? state.equation : state.expression)
         : '';
+    final textTheme = Theme.of(context).textTheme;
     return SizedBox(
       height: 68,
       child: Column(
@@ -538,14 +539,14 @@ class _CalculatorDisplay extends StatelessWidget {
             state.isError ? '错误' : equation,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: Theme.of(context).textTheme.bodyLarge,
+            style: AppTypography.numeric(textTheme.bodyLarge),
           ),
           const SizedBox(height: AppSpacing.xxs),
           Text(
             state.isError ? '请使用退格键恢复' : '￥${state.displayAmount}',
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: Theme.of(context).textTheme.headlineSmall,
+            style: AppTypography.numeric(textTheme.headlineSmall),
           ),
         ],
       ),

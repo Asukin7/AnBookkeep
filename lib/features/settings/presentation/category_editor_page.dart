@@ -208,7 +208,9 @@ class _CategoryEditorPageState extends ConsumerState<CategoryEditorPage>
                       controller: _iconGroupController,
                       isScrollable: true,
                       tabAlignment: TabAlignment.start,
-                      indicatorPadding: const EdgeInsets.all(2),
+                      indicatorPadding: const EdgeInsets.all(
+                        AppSpacing.tabIndicatorInset,
+                      ),
                       tabs: [
                         for (final group in CategoryIconGroup.values)
                           Tab(text: group.label),
