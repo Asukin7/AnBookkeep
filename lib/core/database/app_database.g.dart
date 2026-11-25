@@ -3,6 +3,199 @@
 part of 'app_database.dart';
 
 // ignore_for_file: type=lint
+class BackupRevisions extends Table
+    with TableInfo<BackupRevisions, BackupRevision> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  BackupRevisions(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  late final GeneratedColumn<int> id = GeneratedColumn<int>(
+    'id',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    $customConstraints: 'NOT NULL PRIMARY KEY CHECK (id = 1)',
+  );
+  static const VerificationMeta _revisionMeta = const VerificationMeta(
+    'revision',
+  );
+  late final GeneratedColumn<int> revision = GeneratedColumn<int>(
+    'revision',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+    $customConstraints: 'NOT NULL',
+  );
+  @override
+  List<GeneratedColumn> get $columns => [id, revision];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'backup_revisions';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<BackupRevision> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('revision')) {
+      context.handle(
+        _revisionMeta,
+        revision.isAcceptableOrUnknown(data['revision']!, _revisionMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_revisionMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  BackupRevision map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return BackupRevision(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}id'],
+      )!,
+      revision: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}revision'],
+      )!,
+    );
+  }
+
+  @override
+  BackupRevisions createAlias(String alias) {
+    return BackupRevisions(attachedDatabase, alias);
+  }
+
+  @override
+  bool get dontWriteConstraints => true;
+}
+
+class BackupRevision extends DataClass implements Insertable<BackupRevision> {
+  final int id;
+  final int revision;
+  const BackupRevision({required this.id, required this.revision});
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<int>(id);
+    map['revision'] = Variable<int>(revision);
+    return map;
+  }
+
+  BackupRevisionsCompanion toCompanion(bool nullToAbsent) {
+    return BackupRevisionsCompanion(id: Value(id), revision: Value(revision));
+  }
+
+  factory BackupRevision.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return BackupRevision(
+      id: serializer.fromJson<int>(json['id']),
+      revision: serializer.fromJson<int>(json['revision']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'revision': serializer.toJson<int>(revision),
+    };
+  }
+
+  BackupRevision copyWith({int? id, int? revision}) =>
+      BackupRevision(id: id ?? this.id, revision: revision ?? this.revision);
+  BackupRevision copyWithCompanion(BackupRevisionsCompanion data) {
+    return BackupRevision(
+      id: data.id.present ? data.id.value : this.id,
+      revision: data.revision.present ? data.revision.value : this.revision,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('BackupRevision(')
+          ..write('id: $id, ')
+          ..write('revision: $revision')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(id, revision);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is BackupRevision &&
+          other.id == this.id &&
+          other.revision == this.revision);
+}
+
+class BackupRevisionsCompanion extends UpdateCompanion<BackupRevision> {
+  final Value<int> id;
+  final Value<int> revision;
+  const BackupRevisionsCompanion({
+    this.id = const Value.absent(),
+    this.revision = const Value.absent(),
+  });
+  BackupRevisionsCompanion.insert({
+    this.id = const Value.absent(),
+    required int revision,
+  }) : revision = Value(revision);
+  static Insertable<BackupRevision> custom({
+    Expression<int>? id,
+    Expression<int>? revision,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (revision != null) 'revision': revision,
+    });
+  }
+
+  BackupRevisionsCompanion copyWith({Value<int>? id, Value<int>? revision}) {
+    return BackupRevisionsCompanion(
+      id: id ?? this.id,
+      revision: revision ?? this.revision,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (revision.present) {
+      map['revision'] = Variable<int>(revision.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('BackupRevisionsCompanion(')
+          ..write('id: $id, ')
+          ..write('revision: $revision')
+          ..write(')'))
+        .toString();
+  }
+}
+
 class $CategoriesTable extends Categories
     with TableInfo<$CategoriesTable, CategoryRow> {
   @override
@@ -1052,9 +1245,26 @@ class BookkeepingEntriesCompanion extends UpdateCompanion<TransactionRow> {
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
+  late final BackupRevisions backupRevisions = BackupRevisions(this);
   late final $CategoriesTable categories = $CategoriesTable(this);
   late final $BookkeepingEntriesTable bookkeepingEntries =
       $BookkeepingEntriesTable(this);
+  late final Trigger backupRevisionAdded = Trigger(
+    'CREATE TRIGGER backup_revision_added AFTER INSERT ON transactions BEGIN UPDATE backup_revisions SET revision = revision + 1 WHERE id = 1;END',
+    'backup_revision_added',
+  );
+  late final Trigger backupRevisionDeleted = Trigger(
+    'CREATE TRIGGER backup_revision_deleted AFTER DELETE ON transactions BEGIN UPDATE backup_revisions SET revision = revision + 1 WHERE id = 1;END',
+    'backup_revision_deleted',
+  );
+  late final Trigger backupRevisionEdited = Trigger(
+    'CREATE TRIGGER backup_revision_edited AFTER UPDATE OF type, category_id, amount_minor, note, occurred_at ON transactions WHEN old.type IS NOT new.type OR old.category_id IS NOT new.category_id OR old.amount_minor IS NOT new.amount_minor OR old.note IS NOT new.note OR old.occurred_at IS NOT new.occurred_at BEGIN UPDATE backup_revisions SET revision = revision + 1 WHERE id = 1;END',
+    'backup_revision_edited',
+  );
+  late final Trigger backupRevisionCategoryRenamed = Trigger(
+    'CREATE TRIGGER backup_revision_category_renamed AFTER UPDATE OF name ON categories WHEN old.name IS NOT new.name AND EXISTS (SELECT 1 FROM transactions WHERE category_id = new.id) BEGIN UPDATE backup_revisions SET revision = revision + 1 WHERE id = 1;END',
+    'backup_revision_category_renamed',
+  );
   late final Index categoriesTypeOrder = Index(
     'categories_type_order',
     'CREATE INDEX categories_type_order ON categories (type, sort_order)',
@@ -1079,13 +1289,26 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     'transactions_amount_minor',
     'CREATE INDEX transactions_amount_minor ON transactions (amount_minor)',
   );
+  Selectable<int> readBackupRevision() {
+    return customSelect(
+      'SELECT revision FROM backup_revisions WHERE id = 1',
+      variables: [],
+      readsFrom: {this.backupRevisions},
+    ).map((QueryRow row) => row.read<int>('revision'));
+  }
+
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
   @override
   List<DatabaseSchemaEntity> get allSchemaEntities => [
+    backupRevisions,
     categories,
     bookkeepingEntries,
+    backupRevisionAdded,
+    backupRevisionDeleted,
+    backupRevisionEdited,
+    backupRevisionCategoryRenamed,
     categoriesTypeOrder,
     categoriesTypeName,
     transactionsOccurredAt,
@@ -1093,8 +1316,171 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     transactionsCategoryId,
     transactionsAmountMinor,
   ];
+  @override
+  StreamQueryUpdateRules get streamUpdateRules => const StreamQueryUpdateRules([
+    WritePropagation(
+      on: TableUpdateQuery.onTableName(
+        'transactions',
+        limitUpdateKind: UpdateKind.insert,
+      ),
+      result: [TableUpdate('backup_revisions', kind: UpdateKind.update)],
+    ),
+    WritePropagation(
+      on: TableUpdateQuery.onTableName(
+        'transactions',
+        limitUpdateKind: UpdateKind.delete,
+      ),
+      result: [TableUpdate('backup_revisions', kind: UpdateKind.update)],
+    ),
+    WritePropagation(
+      on: TableUpdateQuery.onTableName(
+        'transactions',
+        limitUpdateKind: UpdateKind.update,
+      ),
+      result: [TableUpdate('backup_revisions', kind: UpdateKind.update)],
+    ),
+    WritePropagation(
+      on: TableUpdateQuery.onTableName(
+        'categories',
+        limitUpdateKind: UpdateKind.update,
+      ),
+      result: [TableUpdate('backup_revisions', kind: UpdateKind.update)],
+    ),
+  ]);
 }
 
+typedef $BackupRevisionsCreateCompanionBuilder =
+    BackupRevisionsCompanion Function({Value<int> id, required int revision});
+typedef $BackupRevisionsUpdateCompanionBuilder =
+    BackupRevisionsCompanion Function({Value<int> id, Value<int> revision});
+
+class $BackupRevisionsFilterComposer
+    extends Composer<_$AppDatabase, BackupRevisions> {
+  $BackupRevisionsFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get revision => $composableBuilder(
+    column: $table.revision,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $BackupRevisionsOrderingComposer
+    extends Composer<_$AppDatabase, BackupRevisions> {
+  $BackupRevisionsOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get revision => $composableBuilder(
+    column: $table.revision,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $BackupRevisionsAnnotationComposer
+    extends Composer<_$AppDatabase, BackupRevisions> {
+  $BackupRevisionsAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<int> get revision =>
+      $composableBuilder(column: $table.revision, builder: (column) => column);
+}
+
+class $BackupRevisionsTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          BackupRevisions,
+          BackupRevision,
+          $BackupRevisionsFilterComposer,
+          $BackupRevisionsOrderingComposer,
+          $BackupRevisionsAnnotationComposer,
+          $BackupRevisionsCreateCompanionBuilder,
+          $BackupRevisionsUpdateCompanionBuilder,
+          (
+            BackupRevision,
+            BaseReferences<_$AppDatabase, BackupRevisions, BackupRevision>,
+          ),
+          BackupRevision,
+          PrefetchHooks Function()
+        > {
+  $BackupRevisionsTableManager(_$AppDatabase db, BackupRevisions table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $BackupRevisionsFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $BackupRevisionsOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $BackupRevisionsAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback: ({
+            Value<int> id = const Value.absent(),
+            Value<int> revision = const Value.absent(),
+          }) => BackupRevisionsCompanion(id: id, revision: revision),
+          createCompanionCallback: ({
+            Value<int> id = const Value.absent(),
+            required int revision,
+          }) => BackupRevisionsCompanion.insert(id: id, revision: revision),
+          withReferenceMapper: (p0) => p0
+              .map(
+                (e) => (
+                  e.readTable<BackupRevisions, BackupRevision>(table),
+                  BaseReferences<
+                    _$AppDatabase,
+                    BackupRevisions,
+                    BackupRevision
+                  >(db, table, e),
+                ),
+              )
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $BackupRevisionsProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      BackupRevisions,
+      BackupRevision,
+      $BackupRevisionsFilterComposer,
+      $BackupRevisionsOrderingComposer,
+      $BackupRevisionsAnnotationComposer,
+      $BackupRevisionsCreateCompanionBuilder,
+      $BackupRevisionsUpdateCompanionBuilder,
+      (
+        BackupRevision,
+        BaseReferences<_$AppDatabase, BackupRevisions, BackupRevision>,
+      ),
+      BackupRevision,
+      PrefetchHooks Function()
+    >;
 typedef $$CategoriesTableCreateCompanionBuilder = CategoriesCompanion Function({
   required String id,
   required int type,
@@ -1853,6 +2239,8 @@ typedef $$BookkeepingEntriesTableProcessedTableManager =
 class $AppDatabaseManager {
   final _$AppDatabase _db;
   $AppDatabaseManager(this._db);
+  $BackupRevisionsTableManager get backupRevisions =>
+      $BackupRevisionsTableManager(_db, _db.backupRevisions);
   $$CategoriesTableTableManager get categories =>
       $$CategoriesTableTableManager(_db, _db.categories);
   $$BookkeepingEntriesTableTableManager get bookkeepingEntries =>

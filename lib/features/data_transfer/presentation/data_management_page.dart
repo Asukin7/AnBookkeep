@@ -36,6 +36,12 @@ class DataManagementPage extends StatelessWidget {
                   trailing: const Icon(Icons.chevron_right_rounded),
                   onTap: () => context.push(AppRoutes.importBills),
                 ),
+                ListTile(
+                  leading: const Icon(Icons.backup_outlined),
+                  title: const Text('局域网备份'),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: () => context.push(AppRoutes.lanBackup),
+                ),
               ],
             ),
           ),

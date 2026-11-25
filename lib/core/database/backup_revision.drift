@@ -1,0 +1,34 @@
+import 'app_database.dart';
+
+CREATE TABLE backup_revisions (
+    id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
+    revision INTEGER NOT NULL
+);
+
+CREATE TRIGGER backup_revision_added AFTER INSERT ON transactions
+BEGIN
+    UPDATE backup_revisions SET revision = revision + 1 WHERE id = 1;
+END;
+
+CREATE TRIGGER backup_revision_deleted AFTER DELETE ON transactions
+BEGIN
+    UPDATE backup_revisions SET revision = revision + 1 WHERE id = 1;
+END;
+
+CREATE TRIGGER backup_revision_edited
+AFTER UPDATE OF type, category_id, amount_minor, note, occurred_at ON transactions
+WHEN old.type IS NOT new.type OR old.category_id IS NOT new.category_id
+    OR old.amount_minor IS NOT new.amount_minor OR old.note IS NOT new.note
+    OR old.occurred_at IS NOT new.occurred_at
+BEGIN
+    UPDATE backup_revisions SET revision = revision + 1 WHERE id = 1;
+END;
+
+CREATE TRIGGER backup_revision_category_renamed AFTER UPDATE OF name ON categories
+WHEN old.name IS NOT new.name
+    AND EXISTS (SELECT 1 FROM transactions WHERE category_id = new.id)
+BEGIN
+    UPDATE backup_revisions SET revision = revision + 1 WHERE id = 1;
+END;
+
+readBackupRevision: SELECT revision FROM backup_revisions WHERE id = 1;

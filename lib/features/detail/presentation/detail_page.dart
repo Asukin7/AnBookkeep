@@ -19,7 +19,9 @@ import 'package:anbookkeep/features/bookkeeping/application/ledger_change_notifi
 import 'package:anbookkeep/features/bookkeeping/application/ledger_year_paging_controller.dart';
 import 'package:anbookkeep/features/bookkeeping/domain/entry_type.dart';
 import 'package:anbookkeep/features/bookkeeping/presentation/bookkeeping_record_list.dart';
+import 'package:anbookkeep/features/lan_backup/application/lan_backup_coordinator.dart';
 import 'package:anbookkeep/features/smart_bookkeeping/presentation/smart_bookkeeping_launcher.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -52,6 +54,7 @@ class _DetailPageState extends ConsumerState<DetailPage>
   late LedgerYearPagingController _pagingController;
   final _listController = BookkeepingRecordListController();
   bool _initialLoading = true;
+  bool _pullRefreshing = false;
   String? _loadError;
   Timer? _quickActionTimer;
   bool _quickActionLongPressed = false;
@@ -128,32 +131,61 @@ class _DetailPageState extends ConsumerState<DetailPage>
                       onTap: () => context.push(AppRoutes.analytics),
                     ),
                   ),
+                  if (_pullRefreshing)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: AppSpacing.xs),
+                      child: SizedBox.square(
+                        dimension: AppSizes.iconAuxiliary,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          semanticsLabel: '正在刷新账单',
+                        ),
+                      ),
+                    ),
                   Expanded(
-                    child: BookkeepingRecordList(
-                      controller: _listController,
-                      pages: _pagingController.pages,
-                      centerMonth:
-                          _selectedMonth ?? _pagingController.newestMonth,
-                      onVisibleMonthChanged: (value) {
-                        if (_visibleMonth != value) {
-                          setState(() => _visibleMonth = value);
-                        }
-                      },
-                      onReachTop: _loadNewerYear,
-                      onReachBottom: _loadOlderYear,
-                      onDelete: _delete,
-                      onTap: (record) async {
-                        await context.push(
-                          '${AppRoutes.bookkeeping}/${record.entry.id}/edit',
-                        );
-                        await _refreshAfterMutation();
-                      },
-                      timePrecision: settings.timePrecision,
-                      useGrouping:
-                          settings.amountDisplayFormat ==
-                          AmountDisplayFormat.grouped,
-                      incomeColor: settings.incomeColor,
-                      expenseColor: settings.expenseColor,
+                    child: ScrollConfiguration(
+                      behavior: ScrollConfiguration.of(context).copyWith(
+                        physics: const BouncingScrollPhysics(),
+                        overscroll: false,
+                      ),
+                      child: RefreshIndicator.noSpinner(
+                        triggerMode: RefreshIndicatorTriggerMode.anywhere,
+                        onRefresh: _refreshFromPull,
+                        onStatusChange: (status) {
+                          final refreshing =
+                              status == RefreshIndicatorStatus.snap ||
+                              status == RefreshIndicatorStatus.refresh;
+                          if (refreshing != _pullRefreshing) {
+                            setState(() => _pullRefreshing = refreshing);
+                          }
+                        },
+                        child: BookkeepingRecordList(
+                          controller: _listController,
+                          pages: _pagingController.pages,
+                          centerMonth:
+                              _selectedMonth ?? _pagingController.newestMonth,
+                          onVisibleMonthChanged: (value) {
+                            if (_visibleMonth != value) {
+                              setState(() => _visibleMonth = value);
+                            }
+                          },
+                          onReachTop: _loadNewerYear,
+                          onReachBottom: _loadOlderYear,
+                          onDelete: _delete,
+                          onTap: (record) async {
+                            await context.push(
+                              '${AppRoutes.bookkeeping}/${record.entry.id}/edit',
+                            );
+                            await _refreshAfterMutation();
+                          },
+                          timePrecision: settings.timePrecision,
+                          useGrouping:
+                              settings.amountDisplayFormat ==
+                              AmountDisplayFormat.grouped,
+                          incomeColor: settings.incomeColor,
+                          expenseColor: settings.expenseColor,
+                        ),
+                      ),
                     ),
                   ),
                 ],
@@ -437,6 +469,20 @@ class _DetailPageState extends ConsumerState<DetailPage>
           ),
         );
       }
+    }
+  }
+
+  Future<void> _refreshFromPull() async {
+    await Future.wait([_refreshAfterMutation(), _backupFromPull()]);
+  }
+
+  Future<void> _backupFromPull() async {
+    if (defaultTargetPlatform != TargetPlatform.android) return;
+    try {
+      final backup = ref.read(lanBackupCoordinatorProvider);
+      if ((await backup.settings()).canBackUp) await backup.backupNow();
+    } on Object catch (error, stackTrace) {
+      _log.error('pull_backup_failed', cause: error, stackTrace: stackTrace);
     }
   }
 

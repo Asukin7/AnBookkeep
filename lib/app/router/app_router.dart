@@ -4,6 +4,7 @@ import 'package:anbookkeep/features/detail/presentation/detail_page.dart';
 import 'package:anbookkeep/features/data_transfer/presentation/data_management_page.dart';
 import 'package:anbookkeep/features/data_transfer/presentation/export_bills_page.dart';
 import 'package:anbookkeep/features/data_transfer/presentation/import_bills_page.dart';
+import 'package:anbookkeep/features/lan_backup/presentation/lan_backup_page.dart';
 import 'package:anbookkeep/features/search/domain/search_criteria.dart';
 import 'package:anbookkeep/features/search/presentation/search_page.dart';
 import 'package:anbookkeep/features/settings/presentation/settings_page.dart';
@@ -28,6 +29,7 @@ abstract final class AppRoutes {
   static const dataManagement = '/settings/data-management';
   static const exportBills = '/settings/data-management/export';
   static const importBills = '/settings/data-management/import';
+  static const lanBackup = '/settings/data-management/lan-backup';
   static const categoryEditor = '/settings/categories/editor';
   static const aiBookkeeping = '/settings/ai-bookkeeping';
   static const aiPrompts = '/settings/ai-bookkeeping/prompts';
@@ -110,6 +112,10 @@ final appRouter = GoRouter(
             GoRoute(
               path: 'import',
               builder: (context, state) => const ImportBillsPage(),
+            ),
+            GoRoute(
+              path: 'lan-backup',
+              builder: (context, state) => const LanBackupPage(),
             ),
           ],
         ),

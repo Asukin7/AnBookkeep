@@ -7,6 +7,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import com.an.anbookkeep.lanbackup.LanBackupChannel
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -35,9 +36,11 @@ class MainActivity : FlutterActivity() {
     private val pendingSessions = mutableListOf<Map<String, Any>>()
     private val processingFingerprints = mutableSetOf<String>()
     private var channel: MethodChannel? = null
+    private var lanBackup: LanBackupChannel? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        lanBackup = LanBackupChannel(this, flutterEngine.dartExecutor.binaryMessenger)
         channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL_NAME).apply {
             setMethodCallHandler { call, result ->
                 when (call.method) {
@@ -64,6 +67,8 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onDestroy() {
+        lanBackup?.close()
+        lanBackup = null
         channel?.setMethodCallHandler(null)
         channel = null
         worker.shutdownNow()

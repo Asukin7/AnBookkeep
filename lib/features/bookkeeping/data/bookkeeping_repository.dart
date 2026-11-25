@@ -76,6 +76,9 @@ final class BookkeepingRepository {
   final AppDatabase _database;
   final Uuid _uuid = const Uuid();
 
+  Future<T> readSnapshot<T>(Future<T> Function() read) =>
+      _database.transaction(read);
+
   Stream<List<CategoryRow>> watchCategories(EntryType type) {
     final query = _database.select(_database.categories)
       ..where((row) => row.type.equals(type.databaseValue))

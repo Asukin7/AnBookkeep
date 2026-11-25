@@ -30,13 +30,8 @@ final class DataExportService {
     required Color themeColor,
   }) async {
     final startedAt = DateTime.now();
-    final rows = await _loadRows(timePrecision);
-    final themeColorValue = themeColor.toARGB32();
-    final bytes = await Isolate.run(
-      () => format == ExportFileFormat.csv
-          ? _buildCsv(rows)
-          : _buildXlsx(rows, themeColorValue),
-    );
+    final rows = await _repository.readSnapshot(() => _loadRows(timePrecision));
+    final bytes = await _encode(format, rows, themeColor.toARGB32());
     final now = DateTime.now();
     String two(int value) => value.toString().padLeft(2, '0');
     final stamp =
@@ -56,6 +51,16 @@ final class DataExportService {
       recordCount: rows.length,
     );
   }
+
+  static Future<Uint8List> _encode(
+    ExportFileFormat format,
+    List<List<Object?>> rows,
+    int themeColorValue,
+  ) => Isolate.run(
+    () => format == ExportFileFormat.csv
+        ? _buildCsv(rows)
+        : _buildXlsx(rows, themeColorValue),
+  );
 
   Future<List<List<Object?>>> _loadRows(TimePrecision timePrecision) async {
     final rows = <List<Object?>>[];

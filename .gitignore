@@ -52,3 +52,6 @@ app.*.map.json
 
 # Project-local Flutter SDK and downloaded tooling
 .tooling/
+
+# Desktop backup receiver build and local deployment
+/backup-receiver/target/

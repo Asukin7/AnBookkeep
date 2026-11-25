@@ -50,24 +50,44 @@ class BookkeepingEntries extends Table {
   Set<Column<Object>> get primaryKey => {id};
 }
 
-@DriftDatabase(tables: [Categories, BookkeepingEntries])
+@DriftDatabase(
+  tables: [Categories, BookkeepingEntries],
+  include: {'backup_revision.drift'},
+)
 final class AppDatabase extends _$AppDatabase {
   AppDatabase(super.e);
 
   AppDatabase.defaults() : super(driftDatabase(name: 'anbookkeep'));
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
     onCreate: (migrator) async {
       await migrator.createAll();
       await _insertDefaultCategories();
+      await _initializeBackupRevision();
+    },
+    onUpgrade: (migrator, from, to) async {
+      if (from < 2) {
+        await transaction(() async {
+          await migrator.createTable(backupRevisions);
+          await _initializeBackupRevision();
+          for (final trigger in allSchemaEntities.whereType<Trigger>()) {
+            await migrator.createTrigger(trigger);
+          }
+        });
+      }
     },
     beforeOpen: (details) async {
       await customStatement('PRAGMA foreign_keys = ON');
+      await customStatement('PRAGMA busy_timeout = 5000');
     },
+  );
+
+  Future<void> _initializeBackupRevision() => customStatement(
+    'INSERT INTO backup_revisions (id, revision) VALUES (1, 0)',
   );
 
   Future<void> _insertDefaultCategories() async {
